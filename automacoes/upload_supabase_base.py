@@ -22,7 +22,25 @@ BUCKET_NAME = "painel-bases"
 
 
 def _env(name: str, default: str = "") -> str:
-    return os.getenv(name, default).strip()
+    value = os.getenv(name, default).strip()
+    if value in {'""', "''"}:
+        return ""
+    return value
+
+
+def _load_env_file(path: str) -> None:
+    if not path:
+        return
+    env_path = ROOT / path if not Path(path).is_absolute() else Path(path)
+    if not env_path.exists():
+        raise FileNotFoundError(f"Arquivo env nao encontrado: {env_path}")
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(name.strip(), value)
 
 
 def _supabase_url() -> str:
@@ -127,15 +145,17 @@ def main() -> int:
     parser.add_argument("--empresa-id", default=_env("SUPABASE_EMPRESA_ID"))
     parser.add_argument("--empresa-slug", default=_env("SUPABASE_EMPRESA_SLUG", "equipe-norte"))
     parser.add_argument("--bucket", default=_env("SUPABASE_BUCKET", BUCKET_NAME))
+    parser.add_argument("--env-file", default="")
     args = parser.parse_args()
+    _load_env_file(args.env_file)
 
     row = upload_base(
         args.tipo_base,
         ROOT / args.arquivo if not Path(args.arquivo).is_absolute() else Path(args.arquivo),
         args.nome_arquivo,
-        args.empresa_id,
-        args.empresa_slug,
-        args.bucket,
+        args.empresa_id or _env("SUPABASE_EMPRESA_ID"),
+        args.empresa_slug or _env("SUPABASE_EMPRESA_SLUG", "equipe-norte"),
+        args.bucket or _env("SUPABASE_BUCKET", BUCKET_NAME),
     )
     print(f"Base {args.tipo_base} publicada no Supabase: {row.get('storage_path', '')}", flush=True)
     return 0

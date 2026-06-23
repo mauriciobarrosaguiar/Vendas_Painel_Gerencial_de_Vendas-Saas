@@ -33,6 +33,11 @@ except Exception:
     def supabase_configured() -> bool:
         return False
 
+try:
+    from automacoes.credenciais import carregar_credencial_automacao
+except Exception:
+    carregar_credencial_automacao = None
+
 
 COLUNAS_CSV = {
     "uf": "UF",
@@ -109,6 +114,25 @@ def _carregar_dados_tratados_automacao() -> dict:
     return carregar_dados_tratados()
 
 
+def _aplicar_credenciais_salvas(login: dict) -> dict:
+    if carregar_credencial_automacao is None:
+        return login
+    try:
+        credencial = carregar_credencial_automacao(
+            "mercado_farma",
+            empresa_id=os.environ.get("SUPABASE_EMPRESA_ID", ""),
+            empresa_slug=os.environ.get("SUPABASE_EMPRESA_SLUG", "equipe-norte"),
+        )
+    except Exception as exc:
+        _log(f"Aviso: nao consegui carregar credenciais Mercado Farma do Supabase: {exc}")
+        return login
+    if not credencial:
+        return login
+    atualizado = login.copy() if isinstance(login, dict) else {}
+    atualizado["mercado_farma"] = credencial
+    return atualizado
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Extrai Mercado Farma para uma UF.")
     parser.add_argument("--uf", required=True, help="UF que sera extraida, ex.: MA")
@@ -144,7 +168,7 @@ def main() -> int:
             csv_path.unlink()
 
         status["etapa"] = "carregar_acesso_gd"
-        login = carregar_login_bussola()
+        login = _aplicar_credenciais_salvas(carregar_login_bussola())
         credencial_gd = carregar_credenciais_mercadofarma(login, exigir=True)
         usuario_gd = str(credencial_gd.get("usuario", ""))
         senha_gd = str(credencial_gd.get("senha", ""))

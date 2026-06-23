@@ -39,3 +39,4 @@ painelgerencialnorte/.next/
 painelgerencialnorte/out/
 painelgerencialnorte/.env.local
 painelgerencialnorte/.env.*.local
+.vercel

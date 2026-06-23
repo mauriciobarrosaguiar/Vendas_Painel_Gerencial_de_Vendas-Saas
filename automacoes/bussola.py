@@ -15,6 +15,11 @@ from src.bussola_web import extrair_bussola_web_todos
 from src.configuracoes import carregar_login_bussola
 from src.datas import agora_brasilia
 
+try:
+    from automacoes.credenciais import carregar_credencial_automacao
+except Exception:
+    carregar_credencial_automacao = None
+
 
 STATUS_PATH = ROOT / "data" / "bussola_status.json"
 
@@ -38,7 +43,17 @@ def _login_json_env() -> dict:
 
 
 def _login_config() -> dict:
-    login = _login_json_env() or carregar_login_bussola()
+    login = _login_json_env()
+    if not login and carregar_credencial_automacao is not None:
+        try:
+            login = carregar_credencial_automacao(
+                "bussola",
+                empresa_id=_env("SUPABASE_EMPRESA_ID"),
+                empresa_slug=_env("SUPABASE_EMPRESA_SLUG", "equipe-norte"),
+            )
+        except Exception as exc:
+            _log(f"Aviso: nao consegui carregar credenciais Bussola do Supabase: {exc}")
+    login = login or carregar_login_bussola()
     if not isinstance(login, dict):
         login = {}
     login.setdefault("gd", {})

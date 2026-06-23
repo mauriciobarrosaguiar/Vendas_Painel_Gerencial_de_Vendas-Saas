@@ -55,6 +55,13 @@ try:
         is_configured as github_actions_configured,
         list_workflow_runs,
     )
+    from backend.services.automation_credentials import (
+        CredentialsConfigError,
+        credentials_available,
+        load_credentials,
+        mask_user,
+        save_credentials,
+    )
     from backend.services.supabase_client import (
         SupabaseConfigError,
         get_default_empresa_id,
@@ -98,6 +105,13 @@ except ModuleNotFoundError as exc:
         is_configured as github_actions_configured,
         list_workflow_runs,
     )
+    from services.automation_credentials import (
+        CredentialsConfigError,
+        credentials_available,
+        load_credentials,
+        mask_user,
+        save_credentials,
+    )
     from services.supabase_client import (
         SupabaseConfigError,
         get_default_empresa_id,
@@ -133,6 +147,23 @@ class MercadoFarmaAutomationRequest(BaseModel):
     todas_ufs: bool = False
     limite_eans: int = Field(default=0, ge=0)
     headless: bool = True
+
+
+class BussolaCredentialsRequest(BaseModel):
+    gd_usuario: str = ""
+    gd_senha: str = ""
+    usar_gd: bool = True
+    headless: bool = True
+
+
+class MercadoFarmaCredentialsRequest(BaseModel):
+    usuario: str = ""
+    senha: str = ""
+
+
+class AutomationCredentialsRequest(BaseModel):
+    bussola: BussolaCredentialsRequest | None = None
+    mercado_farma: MercadoFarmaCredentialsRequest | None = None
 
 
 def _records(df: pd.DataFrame | None, limit: int = 200) -> list[dict[str, Any]]:
@@ -370,6 +401,54 @@ def _register_extraction(
         pass
 
 
+def _merge_bussola_credentials(current: dict[str, Any], payload: BussolaCredentialsRequest) -> dict[str, Any]:
+    gd_current = current.get("gd", {}) if isinstance(current.get("gd"), dict) else {}
+    gd_usuario = payload.gd_usuario.strip() or str(gd_current.get("usuario", "") or "")
+    gd_senha = payload.gd_senha.strip() or str(gd_current.get("senha", "") or "")
+    return {
+        "gd": {
+            "usuario": gd_usuario,
+            "senha": gd_senha,
+            "usar_gd": bool(payload.usar_gd),
+        },
+        "consultores": current.get("consultores", {}) if isinstance(current.get("consultores"), dict) else {},
+        "headless": bool(payload.headless),
+    }
+
+
+def _merge_mercado_credentials(current: dict[str, Any], payload: MercadoFarmaCredentialsRequest) -> dict[str, Any]:
+    return {
+        "usuario": payload.usuario.strip() or str(current.get("usuario", "") or ""),
+        "senha": payload.senha.strip() or str(current.get("senha", "") or ""),
+    }
+
+
+def _credentials_summary(client: Any, empresa_id: str) -> dict[str, Any]:
+    try:
+        bussola = load_credentials(client, empresa_id, "bussola")
+        mercado = load_credentials(client, empresa_id, "mercado_farma")
+    except CredentialsConfigError:
+        bussola = {}
+        mercado = {}
+    gd = bussola.get("gd", {}) if isinstance(bussola.get("gd"), dict) else {}
+    return {
+        "ok": True,
+        "encryption_configured": credentials_available(),
+        "bussola": {
+            "gd_usuario": str(gd.get("usuario", "") or ""),
+            "gd_usuario_mascarado": mask_user(gd.get("usuario", "")),
+            "tem_senha": bool(gd.get("senha")),
+            "usar_gd": bool(gd.get("usar_gd", True)),
+            "headless": bool(bussola.get("headless", True)),
+        },
+        "mercado_farma": {
+            "usuario": str(mercado.get("usuario", "") or ""),
+            "usuario_mascarado": mask_user(mercado.get("usuario", "")),
+            "tem_senha": bool(mercado.get("senha")),
+        },
+    }
+
+
 @app.get("/health")
 @app.get("/api/health", include_in_schema=False)
 def health() -> dict[str, bool]:
@@ -463,6 +542,44 @@ def automacao_mercado_farma_status(
         "runs": runs,
         "runs_error": runs_error,
     }
+
+
+@app.get("/automacoes/credenciais")
+@app.get("/api/automacoes/credenciais", include_in_schema=False)
+def automacao_credenciais_status(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    context = _require_context(authorization, x_empresa_id)
+    client = get_supabase_client()
+    return _credentials_summary(client, context.empresa_id)
+
+
+@app.post("/automacoes/credenciais")
+@app.post("/api/automacoes/credenciais", include_in_schema=False)
+def automacao_credenciais_salvar(
+    payload: AutomationCredentialsRequest,
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    context = _require_context(authorization, x_empresa_id)
+    client = get_supabase_client()
+    if not credentials_available():
+        raise HTTPException(status_code=503, detail="Configure PERSISTENCE_KEY para salvar credenciais.")
+
+    try:
+        if payload.bussola is not None:
+            current = load_credentials(client, context.empresa_id, "bussola")
+            merged = _merge_bussola_credentials(current, payload.bussola)
+            save_credentials(client, context.empresa_id, "bussola", merged, user_id=context.user_id)
+        if payload.mercado_farma is not None:
+            current = load_credentials(client, context.empresa_id, "mercado_farma")
+            merged = _merge_mercado_credentials(current, payload.mercado_farma)
+            save_credentials(client, context.empresa_id, "mercado_farma", merged, user_id=context.user_id)
+    except CredentialsConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {**_credentials_summary(client, context.empresa_id), "message": "Credenciais salvas com seguranca."}
 
 
 @app.post("/automacoes/mercado-farma")

@@ -26,6 +26,22 @@ type BussolaStatus = {
   runs_error?: string;
 };
 
+type CredentialStatus = {
+  encryption_configured?: boolean;
+  bussola?: {
+    gd_usuario?: string;
+    gd_usuario_mascarado?: string;
+    tem_senha?: boolean;
+    usar_gd?: boolean;
+    headless?: boolean;
+  };
+  mercado_farma?: {
+    usuario?: string;
+    usuario_mascarado?: string;
+    tem_senha?: boolean;
+  };
+};
+
 type AutomationState = {
   loading: boolean;
   message: string;
@@ -75,9 +91,13 @@ function errorMessage(payload: unknown, fallback: string) {
 export function AutomationImportPanel() {
   const [mercadoStatus, setMercadoStatus] = useState<MercadoStatus>({});
   const [bussolaStatus, setBussolaStatus] = useState<BussolaStatus>({});
+  const [credentialStatus, setCredentialStatus] = useState<CredentialStatus>({});
+  const [bussolaLogin, setBussolaLogin] = useState({ usuario: "", senha: "" });
+  const [mercadoLogin, setMercadoLogin] = useState({ usuario: "", senha: "" });
   const [selectedUfs, setSelectedUfs] = useState<string[]>([]);
   const [limit, setLimit] = useState("0");
   const [headless, setHeadless] = useState(true);
+  const [usarGd, setUsarGd] = useState(true);
   const [state, setState] = useState<AutomationState>(initialState);
 
   const mercadoRun = latestRun(mercadoStatus.runs);
@@ -97,9 +117,10 @@ export function AutomationImportPanel() {
       return;
     }
     const headers = { Authorization: `Bearer ${token}` };
-    const [mercadoResponse, bussolaResponse] = await Promise.all([
+    const [mercadoResponse, bussolaResponse, credentialsResponse] = await Promise.all([
       fetch(apiPath("/automacoes/mercado-farma"), { cache: "no-store", headers }),
       fetch(apiPath("/automacoes/bussola"), { cache: "no-store", headers }),
+      fetch(apiPath("/automacoes/credenciais"), { cache: "no-store", headers }),
     ]);
     if (mercadoResponse.ok) {
       const payload = (await mercadoResponse.json()) as MercadoStatus;
@@ -109,6 +130,14 @@ export function AutomationImportPanel() {
     }
     if (bussolaResponse.ok) {
       setBussolaStatus((await bussolaResponse.json()) as BussolaStatus);
+    }
+    if (credentialsResponse.ok) {
+      const payload = (await credentialsResponse.json()) as CredentialStatus;
+      setCredentialStatus(payload);
+      setBussolaLogin((current) => ({ ...current, usuario: payload.bussola?.gd_usuario ?? current.usuario }));
+      setMercadoLogin((current) => ({ ...current, usuario: payload.mercado_farma?.usuario ?? current.usuario }));
+      setUsarGd(Boolean(payload.bussola?.usar_gd ?? true));
+      setHeadless(Boolean(payload.bussola?.headless ?? true));
     }
   }, [authToken]);
 
@@ -152,6 +181,27 @@ export function AutomationImportPanel() {
     await postAutomation("/automacoes/bussola", { headless }, "Disparando extracao Bussola...");
   }
 
+  async function saveCredentials() {
+    await postAutomation(
+      "/automacoes/credenciais",
+      {
+        bussola: {
+          gd_usuario: bussolaLogin.usuario,
+          gd_senha: bussolaLogin.senha,
+          usar_gd: usarGd,
+          headless,
+        },
+        mercado_farma: {
+          usuario: mercadoLogin.usuario,
+          senha: mercadoLogin.senha,
+        },
+      },
+      "Salvando credenciais...",
+    );
+    setBussolaLogin((current) => ({ ...current, senha: "" }));
+    setMercadoLogin((current) => ({ ...current, senha: "" }));
+  }
+
   async function updateSelectedUfs() {
     await postAutomation(
       "/automacoes/mercado-farma",
@@ -191,6 +241,31 @@ export function AutomationImportPanel() {
               Usa GD quando configurado; caso contrario, usa consultores marcados com login completo.
             </p>
           </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-[#355242]">
+              Login / e-mail GD
+              <input
+                className="focus-ring mt-1 block w-full rounded-md border border-border bg-muted px-3 py-2 text-sm"
+                type="text"
+                value={bussolaLogin.usuario}
+                onChange={(event) => setBussolaLogin((current) => ({ ...current, usuario: event.target.value }))}
+              />
+            </label>
+            <label className="block text-sm font-medium text-[#355242]">
+              Senha GD
+              <input
+                className="focus-ring mt-1 block w-full rounded-md border border-border bg-muted px-3 py-2 text-sm"
+                placeholder={credentialStatus.bussola?.tem_senha ? "Senha ja salva" : ""}
+                type="password"
+                value={bussolaLogin.senha}
+                onChange={(event) => setBussolaLogin((current) => ({ ...current, senha: event.target.value }))}
+              />
+            </label>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-[#355242]">
+            <input checked={usarGd} type="checkbox" onChange={(event) => setUsarGd(event.target.checked)} />
+            Usar GD para baixar a base completa
+          </label>
           <button
             className="focus-ring rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-[#0f5838] disabled:cursor-not-allowed disabled:opacity-60"
             type="button"
@@ -218,6 +293,27 @@ export function AutomationImportPanel() {
             <p className="mt-1 text-sm text-[#60786c]">
               UFs detectadas pela base de clientes ativa. EANs na lista: {mercadoStatus.total_eans ?? 0}.
             </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="block text-sm font-medium text-[#355242]">
+              Login / e-mail GD
+              <input
+                className="focus-ring mt-1 block w-full rounded-md border border-border bg-muted px-3 py-2 text-sm"
+                type="text"
+                value={mercadoLogin.usuario}
+                onChange={(event) => setMercadoLogin((current) => ({ ...current, usuario: event.target.value }))}
+              />
+            </label>
+            <label className="block text-sm font-medium text-[#355242]">
+              Senha GD
+              <input
+                className="focus-ring mt-1 block w-full rounded-md border border-border bg-muted px-3 py-2 text-sm"
+                placeholder={credentialStatus.mercado_farma?.tem_senha ? "Senha ja salva" : ""}
+                type="password"
+                value={mercadoLogin.senha}
+                onChange={(event) => setMercadoLogin((current) => ({ ...current, senha: event.target.value }))}
+              />
+            </label>
           </div>
           <div className="flex flex-wrap gap-2">
             {availableUfs.length ? (
@@ -274,6 +370,19 @@ export function AutomationImportPanel() {
           </p>
           {mercadoStatus.runs_error ? <p className="text-sm text-[#a33a2a]">{mercadoStatus.runs_error}</p> : null}
         </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">
+        <button
+          className="focus-ring rounded-md border border-primary px-4 py-2 text-sm font-semibold text-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+          type="button"
+          disabled={state.loading}
+          onClick={saveCredentials}
+        >
+          Salvar logins
+        </button>
+        <p className="text-sm text-[#60786c]">
+          As senhas ficam criptografadas. Campo de senha vazio mantem a senha salva.
+        </p>
       </div>
       <p className={`mt-4 text-sm ${toneClass(state.tone)}`}>{state.message}</p>
     </section>

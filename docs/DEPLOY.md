@@ -79,6 +79,16 @@ BUSSOLA_GD_NOME=
 
 `BUSSOLA_LOGIN_JSON` e opcional quando `BUSSOLA_GD_USUARIO`/`BUSSOLA_GD_SENHA` estiverem configurados. Se usar JSON, mantenha o mesmo formato salvo pelo painel antigo: `gd`, `consultores` e `headless`.
 
+Tambem e possivel salvar os logins pela tela `/importacao`, no bloco "Automacoes web". Essas credenciais ficam criptografadas com `PERSISTENCE_KEY` e os workflows leem do Supabase usando `SUPABASE_SERVICE_ROLE_KEY`.
+
+Para importar localmente o arquivo `data/PAINEL EQUIPE NORTE.xlsx` para o SaaS, puxe/preencha as envs de producao e rode:
+
+```powershell
+python automacoes\upload_supabase_base.py --env-file .env.production.local --tipo-base painel --arquivo "data\PAINEL EQUIPE NORTE.xlsx" --nome-arquivo "PAINEL EQUIPE NORTE.xlsx" --empresa-slug equipe-norte
+```
+
+`NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` precisam estar preenchidos; nao envie esse Excel para o GitHub.
+
 ## Validacao
 
 1. Acesse `/api/health`; a resposta deve ser `{"ok": true}`.

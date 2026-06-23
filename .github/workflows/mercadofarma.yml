@@ -24,6 +24,10 @@ on:
         description: "Identificador do disparo pelo painel"
         required: false
         default: ""
+      empresa_id:
+        description: "Empresa do Supabase que recebera a base atualizada"
+        required: false
+        default: ""
       headless:
         description: "Rodar navegador oculto"
         required: false
@@ -90,6 +94,11 @@ jobs:
           PERSISTENCE_KEY: ${{ secrets.PERSISTENCE_KEY || inputs.persistence_key }}
           MERCADOFARMA_USUARIO: ${{ secrets.MERCADOFARMA_USUARIO || inputs.mercadofarma_usuario }}
           MERCADOFARMA_SENHA: ${{ secrets.MERCADOFARMA_SENHA || inputs.mercadofarma_senha }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_EMPRESA_ID: ${{ inputs.empresa_id || secrets.SUPABASE_EMPRESA_ID }}
+          SUPABASE_EMPRESA_SLUG: ${{ secrets.SUPABASE_EMPRESA_SLUG || 'equipe-norte' }}
         run: |
           if [ -n "$MERCADOFARMA_USUARIO" ]; then
             echo "::add-mask::$MERCADOFARMA_USUARIO"
@@ -134,7 +143,7 @@ jobs:
       - name: Instalar pandas
         run: |
           python -m pip install --upgrade pip
-          pip install pandas openpyxl
+          pip install pandas openpyxl supabase
 
       - name: Baixar artifacts das UFs
         uses: actions/download-artifact@v4
@@ -146,6 +155,20 @@ jobs:
 
       - name: Consolidar Mercado Farma
         run: python scripts/consolidar_mercadofarma.py
+
+      - name: Publicar consolidado no Supabase
+        if: ${{ hashFiles('data/mercadofarma/mercadofarma_consolidado.csv') != '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_EMPRESA_ID: ${{ inputs.empresa_id || secrets.SUPABASE_EMPRESA_ID }}
+          SUPABASE_EMPRESA_SLUG: ${{ secrets.SUPABASE_EMPRESA_SLUG || 'equipe-norte' }}
+        run: |
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          fi
+          python automacoes/upload_supabase_base.py --tipo-base mercado_farma --arquivo data/mercadofarma/mercadofarma_consolidado.csv --nome-arquivo mercado_farma.csv --empresa-id "$SUPABASE_EMPRESA_ID"
 
       - name: Salvar consolidado no repositorio
         run: |

@@ -40,6 +40,7 @@ BACKEND_URL=
 PERSISTENCE_KEY=
 GITHUB_REPO=
 GITHUB_TOKEN=
+GITHUB_BRANCH=main
 GITHUB_STORAGE_BRANCH=
 GITHUB_STORE_DIR=
 MERCADOFARMA_USUARIO=
@@ -48,6 +49,35 @@ NODE_OPTIONS=--use-system-ca
 ```
 
 5. Faça deploy da branch `main`.
+
+## Automacoes GitHub Actions
+
+Os botoes "Extrair Bussola agora", "Atualizar UFs selecionadas" e "Atualizar todas as UFs" disparam workflows do GitHub. Configure:
+
+No Vercel:
+
+```text
+GITHUB_REPO=mauriciobarrosaguiar/Vendas_Painel_Gerencial_de_Vendas-Saas
+GITHUB_BRANCH=main
+GITHUB_TOKEN=
+```
+
+No repositorio GitHub, em Actions secrets and variables:
+
+```text
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_EMPRESA_SLUG=equipe-norte
+PERSISTENCE_KEY=
+MERCADOFARMA_USUARIO=
+MERCADOFARMA_SENHA=
+BUSSOLA_LOGIN_JSON=
+BUSSOLA_GD_USUARIO=
+BUSSOLA_GD_SENHA=
+BUSSOLA_GD_NOME=
+```
+
+`BUSSOLA_LOGIN_JSON` e opcional quando `BUSSOLA_GD_USUARIO`/`BUSSOLA_GD_SENHA` estiverem configurados. Se usar JSON, mantenha o mesmo formato salvo pelo painel antigo: `gd`, `consultores` e `headless`.
 
 ## Validacao
 

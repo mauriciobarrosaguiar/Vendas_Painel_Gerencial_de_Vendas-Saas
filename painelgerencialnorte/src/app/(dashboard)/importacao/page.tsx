@@ -1,3 +1,4 @@
+import { AutomationImportPanel } from "@/components/ui/AutomationImportPanel";
 import { UploadBaseCard } from "@/components/ui/UploadBaseCard";
 
 const bases = [
@@ -19,6 +20,7 @@ export default function ImportacaoPage() {
           Uploads vao para Supabase Storage, com validacao Python, backup automatico e bloqueio contra base invalida.
         </p>
       </div>
+      <AutomationImportPanel />
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {bases.map(([title, description, typeBase]) => (
           <UploadBaseCard key={typeBase} title={title} description={description} typeBase={typeBase} />

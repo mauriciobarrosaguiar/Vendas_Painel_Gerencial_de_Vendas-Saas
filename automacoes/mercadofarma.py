@@ -25,6 +25,14 @@ from src.mercado_farma import (
     preparar_mercado_farma,
 )
 
+try:
+    from automacoes.supabase_bases import carregar_dados_tratados_supabase, supabase_configured
+except Exception:
+    carregar_dados_tratados_supabase = None
+
+    def supabase_configured() -> bool:
+        return False
+
 
 COLUNAS_CSV = {
     "uf": "UF",
@@ -87,6 +95,20 @@ def _validar_bases_carregadas(clientes: pd.DataFrame, produtos_mercado: pd.DataF
     raise RuntimeError("Nao consegui carregar as bases obrigatorias: " + ", ".join(faltantes))
 
 
+def _carregar_dados_tratados_automacao() -> dict:
+    if supabase_configured() and carregar_dados_tratados_supabase is not None:
+        try:
+            _log("Carregando bases ativas do Supabase.")
+            return carregar_dados_tratados_supabase(
+                empresa_id=os.environ.get("SUPABASE_EMPRESA_ID", ""),
+                empresa_slug=os.environ.get("SUPABASE_EMPRESA_SLUG", "equipe-norte"),
+            )
+        except Exception as exc:
+            _log(f"Aviso: nao consegui carregar bases do Supabase: {exc}")
+    _log("Carregando bases pelo mecanismo legado/local.")
+    return carregar_dados_tratados()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Extrai Mercado Farma para uma UF.")
     parser.add_argument("--uf", required=True, help="UF que sera extraida, ex.: MA")
@@ -131,7 +153,7 @@ def main() -> int:
         _log(f"Usuario Mercado Farma: {status['usuario_mascarado'] or 'nao informado'}")
 
         status["etapa"] = "carregar_bases"
-        dados = carregar_dados_tratados()
+        dados = _carregar_dados_tratados_automacao()
         clientes = dados["clientes"]
         produtos_mercado = dados["produtos_mercado_farma"]
         _validar_bases_carregadas(clientes, produtos_mercado)

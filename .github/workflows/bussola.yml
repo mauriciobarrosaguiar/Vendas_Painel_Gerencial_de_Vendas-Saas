@@ -1,0 +1,108 @@
+name: Bussola Web
+run-name: Bussola / ${{ inputs.acao }} / ${{ inputs.command_id || github.run_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      acao:
+        description: "Acao solicitada pelo painel"
+        required: true
+        default: "extrair_bussola"
+      headless:
+        description: "Rodar navegador oculto"
+        required: false
+        default: "true"
+      empresa_id:
+        description: "Empresa do Supabase que recebera a base atualizada"
+        required: false
+        default: ""
+      command_id:
+        description: "Identificador do disparo pelo painel"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  extrair_bussola:
+    if: ${{ inputs.acao == 'extrair_bussola' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Diagnosticar navegador
+        run: |
+          echo "Chrome disponivel:"
+          which google-chrome || true
+          google-chrome --version || true
+          echo "ChromeDriver disponivel:"
+          which chromedriver || true
+          chromedriver --version || true
+
+      - name: Extrair Bussola
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+          GITHUB_STORAGE_BRANCH: app-storage
+          PERSISTENCE_KEY: ${{ secrets.PERSISTENCE_KEY }}
+          BUSSOLA_LOGIN_JSON: ${{ secrets.BUSSOLA_LOGIN_JSON }}
+          BUSSOLA_GD_USUARIO: ${{ secrets.BUSSOLA_GD_USUARIO || secrets.BUSSOLA_USUARIO }}
+          BUSSOLA_GD_SENHA: ${{ secrets.BUSSOLA_GD_SENHA || secrets.BUSSOLA_SENHA }}
+          BUSSOLA_GD_NOME: ${{ secrets.BUSSOLA_GD_NOME || 'Gerente Distrital' }}
+        run: |
+          if [ -n "$PERSISTENCE_KEY" ]; then
+            echo "::add-mask::$PERSISTENCE_KEY"
+          fi
+          if [ -n "$BUSSOLA_GD_USUARIO" ]; then
+            echo "::add-mask::$BUSSOLA_GD_USUARIO"
+          fi
+          if [ -n "$BUSSOLA_GD_SENHA" ]; then
+            echo "::add-mask::$BUSSOLA_GD_SENHA"
+          fi
+          EXTRA_ARGS=""
+          if [ "${{ inputs.headless }}" = "true" ]; then
+            EXTRA_ARGS="--headless"
+          fi
+          python automacoes/bussola.py $EXTRA_ARGS
+
+      - name: Publicar artifact Bussola
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bussola-web
+          if-no-files-found: ignore
+          path: |
+            data/bussola.xlsx
+            data/bussola_status.json
+            downloads_bussola/**
+
+      - name: Publicar Bussola no Supabase
+        if: ${{ hashFiles('data/bussola.xlsx') != '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_EMPRESA_ID: ${{ inputs.empresa_id || secrets.SUPABASE_EMPRESA_ID }}
+          SUPABASE_EMPRESA_SLUG: ${{ secrets.SUPABASE_EMPRESA_SLUG || 'equipe-norte' }}
+        run: |
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          fi
+          python automacoes/upload_supabase_base.py --tipo-base bussola --arquivo data/bussola.xlsx --nome-arquivo bussola.xlsx --empresa-id "$SUPABASE_EMPRESA_ID"

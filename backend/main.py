@@ -13,6 +13,7 @@ import pandas as pd
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 CURRENT_DIR = Path(__file__).resolve().parent
 ROOT = CURRENT_DIR.parent if CURRENT_DIR.name == "backend" else CURRENT_DIR
@@ -34,12 +35,25 @@ try:
         tratar_bases,
         validar_upload_generico,
     )
-    from backend.core.mercado_farma import melhor_preco_por_ean, preparar_mercado_farma
+    from backend.core.mercado_farma import (
+        VALID_UFS,
+        melhor_preco_por_ean,
+        obter_eans_para_consulta,
+        preparar_mercado_farma,
+        ufs_validas_clientes,
+    )
     from backend.core.tratamento import (
         COLUNAS_ACOES,
         COLUNAS_BUSSOLA,
         COLUNAS_PAINEL,
         COLUNAS_PRODUTOS_MIX,
+        preparar_painel_equipe,
+    )
+    from backend.services.github_actions import (
+        GitHubActionsConfigError,
+        dispatch_workflow,
+        is_configured as github_actions_configured,
+        list_workflow_runs,
     )
     from backend.services.supabase_client import (
         SupabaseConfigError,
@@ -64,12 +78,25 @@ except ModuleNotFoundError as exc:
         tratar_bases,
         validar_upload_generico,
     )
-    from core.mercado_farma import melhor_preco_por_ean, preparar_mercado_farma
+    from core.mercado_farma import (
+        VALID_UFS,
+        melhor_preco_por_ean,
+        obter_eans_para_consulta,
+        preparar_mercado_farma,
+        ufs_validas_clientes,
+    )
     from core.tratamento import (
         COLUNAS_ACOES,
         COLUNAS_BUSSOLA,
         COLUNAS_PAINEL,
         COLUNAS_PRODUTOS_MIX,
+        preparar_painel_equipe,
+    )
+    from services.github_actions import (
+        GitHubActionsConfigError,
+        dispatch_workflow,
+        is_configured as github_actions_configured,
+        list_workflow_runs,
     )
     from services.supabase_client import (
         SupabaseConfigError,
@@ -93,6 +120,19 @@ TIPOS_BASE: dict[str, str] = {
     "bussola_historico": "Historico Bussola",
 }
 EXTENSOES_VALIDAS = {".xlsx", ".xls", ".csv"}
+WORKFLOW_BUSSOLA = "bussola.yml"
+WORKFLOW_MERCADO_FARMA = "mercadofarma.yml"
+
+
+class BussolaAutomationRequest(BaseModel):
+    headless: bool = True
+
+
+class MercadoFarmaAutomationRequest(BaseModel):
+    ufs: list[str] = Field(default_factory=list)
+    todas_ufs: bool = False
+    limite_eans: int = Field(default=0, ge=0)
+    headless: bool = True
 
 
 def _records(df: pd.DataFrame | None, limit: int = 200) -> list[dict[str, Any]]:
@@ -240,6 +280,96 @@ def _auth_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=401, detail=str(exc))
 
 
+def _require_context(authorization: str | None, x_empresa_id: str | None) -> Any:
+    try:
+        context = resolve_user_context(authorization, required=True, empresa_id_override=x_empresa_id)
+    except PermissionError as exc:
+        raise _auth_error(exc) from exc
+    if context is None or not context.empresa_id:
+        raise HTTPException(status_code=403, detail="Usuario sem empresa vinculada.")
+    return context
+
+
+def _normalize_ufs(ufs: list[str]) -> list[str]:
+    normalized: list[str] = []
+    invalid: list[str] = []
+    for item in ufs:
+        for piece in str(item or "").replace(";", ",").split(","):
+            uf = piece.strip().upper()
+            if not uf:
+                continue
+            if uf not in VALID_UFS:
+                invalid.append(uf)
+                continue
+            if uf not in normalized:
+                normalized.append(uf)
+    if invalid:
+        raise HTTPException(status_code=400, detail="UF invalida: " + ", ".join(sorted(set(invalid))))
+    return normalized
+
+
+def _automation_context(client: Any, empresa_id: str) -> dict[str, Any]:
+    rows = _active_base_rows(client, empresa_id)
+    files = _download_active_files(client, rows)
+    bases = _base_statuses(rows)
+    raw = _raw_from_files(files)
+    clientes = preparar_painel_equipe(raw.painel) if not raw.painel.empty else pd.DataFrame()
+    ufs = ufs_validas_clientes(clientes)
+    eans = obter_eans_para_consulta(raw.produtos_mercado_farma)
+    return {
+        "bases": bases,
+        "ufs": ufs,
+        "total_eans": len(eans),
+        "tem_painel": "painel" in files,
+        "tem_produtos_mercado": "produtos_mercado_farma" in files,
+    }
+
+
+def _run_summary(run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(run.get("id") or ""),
+        "name": str(run.get("name") or ""),
+        "status": str(run.get("status") or ""),
+        "conclusion": run.get("conclusion"),
+        "created_at": run.get("created_at"),
+        "updated_at": run.get("updated_at"),
+        "run_started_at": run.get("run_started_at"),
+        "html_url": run.get("html_url"),
+    }
+
+
+def _safe_runs(workflow: str, limit: int = 5) -> tuple[list[dict[str, Any]], str]:
+    if not github_actions_configured():
+        return [], "GITHUB_TOKEN/GITHUB_REPO nao configurados."
+    try:
+        return [_run_summary(run) for run in list_workflow_runs(workflow, limit=limit)], ""
+    except GitHubActionsConfigError as exc:
+        return [], str(exc)
+    except Exception as exc:
+        return [], str(exc)
+
+
+def _register_extraction(
+    client: Any,
+    empresa_id: str,
+    tipo: str,
+    parametros: dict[str, Any],
+    resultado: dict[str, Any],
+) -> None:
+    try:
+        client.table("painel_extracoes").insert(
+            {
+                "empresa_id": empresa_id,
+                "tipo": tipo,
+                "status": "disparado",
+                "parametros": parametros,
+                "resultado": resultado,
+            }
+        ).execute()
+    except Exception:
+        pass
+
+
 @app.get("/health")
 @app.get("/api/health", include_in_schema=False)
 def health() -> dict[str, bool]:
@@ -310,6 +440,140 @@ def dashboard(
         raise _auth_error(exc) from exc
     except Exception as exc:
         return _unavailable(exc)
+
+
+@app.get("/automacoes/mercado-farma")
+@app.get("/api/automacoes/mercado-farma", include_in_schema=False)
+def automacao_mercado_farma_status(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    context = _require_context(authorization, x_empresa_id)
+    client = get_supabase_client()
+    ctx = _automation_context(client, context.empresa_id)
+    runs, runs_error = _safe_runs(WORKFLOW_MERCADO_FARMA)
+    return {
+        "ok": True,
+        "github_configured": github_actions_configured(),
+        "available_ufs": ctx["ufs"],
+        "total_eans": ctx["total_eans"],
+        "tem_painel": ctx["tem_painel"],
+        "tem_produtos_mercado": ctx["tem_produtos_mercado"],
+        "bases": ctx["bases"],
+        "runs": runs,
+        "runs_error": runs_error,
+    }
+
+
+@app.post("/automacoes/mercado-farma")
+@app.post("/api/automacoes/mercado-farma", include_in_schema=False)
+def automacao_mercado_farma_disparar(
+    payload: MercadoFarmaAutomationRequest,
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    context = _require_context(authorization, x_empresa_id)
+    client = get_supabase_client()
+    ctx = _automation_context(client, context.empresa_id)
+    available_ufs = list(ctx["ufs"])
+    selected_ufs = available_ufs if payload.todas_ufs else _normalize_ufs(payload.ufs)
+    if not selected_ufs:
+        raise HTTPException(status_code=400, detail="Selecione ao menos uma UF com cliente ativo.")
+
+    unavailable = [uf for uf in selected_ufs if uf not in available_ufs]
+    if unavailable:
+        raise HTTPException(
+            status_code=400,
+            detail="UF sem cliente ativo/CNPJ referencia na base atual: " + ", ".join(unavailable),
+        )
+    if not ctx["tem_produtos_mercado"]:
+        raise HTTPException(status_code=400, detail="Importe Produtos Mercado Farma antes de atualizar os precos.")
+
+    command_id = uuid4().hex
+    inputs = {
+        "acao": "atualizar_mercadofarma_paralelo",
+        "ufs": ",".join(selected_ufs),
+        "uf": ",".join(selected_ufs),
+        "limite_eans": str(max(payload.limite_eans, 0)),
+        "headless": "true" if payload.headless else "false",
+        "empresa_id": context.empresa_id,
+        "command_id": command_id,
+    }
+    try:
+        dispatch = dispatch_workflow(WORKFLOW_MERCADO_FARMA, inputs)
+    except GitHubActionsConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    _register_extraction(
+        client,
+        context.empresa_id,
+        "mercado_farma",
+        {"ufs": selected_ufs, "limite_eans": payload.limite_eans, "headless": payload.headless},
+        {"workflow": WORKFLOW_MERCADO_FARMA, "command_id": command_id},
+    )
+    return {
+        "ok": True,
+        "message": "Atualizacao Mercado Farma disparada no GitHub Actions.",
+        "workflow": dispatch["workflow"],
+        "branch": dispatch["branch"],
+        "ufs": selected_ufs,
+        "command_id": command_id,
+    }
+
+
+@app.get("/automacoes/bussola")
+@app.get("/api/automacoes/bussola", include_in_schema=False)
+def automacao_bussola_status(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _require_context(authorization, x_empresa_id)
+    runs, runs_error = _safe_runs(WORKFLOW_BUSSOLA)
+    return {
+        "ok": True,
+        "github_configured": github_actions_configured(),
+        "runs": runs,
+        "runs_error": runs_error,
+    }
+
+
+@app.post("/automacoes/bussola")
+@app.post("/api/automacoes/bussola", include_in_schema=False)
+def automacao_bussola_disparar(
+    payload: BussolaAutomationRequest,
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> dict[str, Any]:
+    context = _require_context(authorization, x_empresa_id)
+    client = get_supabase_client()
+    command_id = uuid4().hex
+    inputs = {
+        "acao": "extrair_bussola",
+        "headless": "true" if payload.headless else "false",
+        "empresa_id": context.empresa_id,
+        "command_id": command_id,
+    }
+    try:
+        dispatch = dispatch_workflow(WORKFLOW_BUSSOLA, inputs)
+    except GitHubActionsConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    _register_extraction(
+        client,
+        context.empresa_id,
+        "bussola",
+        {"headless": payload.headless},
+        {"workflow": WORKFLOW_BUSSOLA, "command_id": command_id},
+    )
+    return {
+        "ok": True,
+        "message": "Extracao Bussola disparada no GitHub Actions.",
+        "workflow": dispatch["workflow"],
+        "branch": dispatch["branch"],
+        "command_id": command_id,
+    }
 
 
 @app.get("/consultores")

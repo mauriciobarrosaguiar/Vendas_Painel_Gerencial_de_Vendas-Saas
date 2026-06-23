@@ -10,8 +10,7 @@ export function TemplatesTable() {
               <th className="px-4 py-3 font-semibold">Modelo</th>
               <th className="px-4 py-3 font-semibold">Arquivo</th>
               <th className="px-4 py-3 font-semibold">Aba</th>
-              <th className="px-4 py-3 font-semibold">Colunas obrigatorias</th>
-              <th className="px-4 py-3 font-semibold">Download</th>
+              <th className="px-4 py-3 font-semibold text-right">Download</th>
             </tr>
           </thead>
           <tbody>
@@ -20,8 +19,7 @@ export function TemplatesTable() {
                 <td className="px-4 py-3 font-semibold text-[#183b2d]">{template.title}</td>
                 <td className="px-4 py-3 text-[#183b2d]">{template.arquivo}</td>
                 <td className="px-4 py-3 text-[#183b2d]">{template.aba}</td>
-                <td className="px-4 py-3 text-[#183b2d]">{template.colunas.join(", ")}</td>
-                <td className="px-4 py-3">
+                <td className="px-4 py-3 text-right">
                   <a
                     className="focus-ring inline-flex rounded-md bg-primary px-3 py-2 text-xs font-semibold text-white hover:bg-[#0f5838]"
                     href={template.modelUrl}

@@ -11,7 +11,7 @@ class SupabaseConfigError(RuntimeError):
 
 @dataclass(frozen=True)
 class UserContext:
-    user_id: str
+    user_id: str | None
     email: str
     papel: str
     empresa_id: str | None
@@ -88,6 +88,12 @@ def _auth_user_id(user_response: Any) -> tuple[str | None, str]:
 
 def get_default_empresa_id() -> str | None:
     client = get_supabase_client()
+    slug = _env("PUBLIC_EMPRESA_SLUG") or "equipe-norte"
+    response = client.table("core_empresas").select("id").eq("slug", slug).eq("ativo", True).limit(1).execute()
+    row = _first(response)
+    if row and row.get("id"):
+        return str(row["id"])
+
     response = client.table("core_empresas").select("id").eq("ativo", True).limit(1).execute()
     row = _first(response)
     return str(row["id"]) if row and row.get("id") else None
@@ -101,9 +107,19 @@ def resolve_user_context(
 ) -> UserContext | None:
     token = bearer_token(authorization)
     if not token:
-        if required:
-            raise PermissionError("Sessao obrigatoria para esta operacao.")
-        return None
+        empresa_id = empresa_id_override or get_default_empresa_id()
+        if not empresa_id:
+            if required:
+                raise PermissionError("Empresa padrao nao encontrada.")
+            return None
+
+        return UserContext(
+            user_id=None,
+            email="publico@painel.local",
+            papel="admin_master",
+            empresa_id=empresa_id,
+            nome="Acesso Publico",
+        )
 
     client = get_supabase_client()
     auth_response = client.auth.get_user(token)

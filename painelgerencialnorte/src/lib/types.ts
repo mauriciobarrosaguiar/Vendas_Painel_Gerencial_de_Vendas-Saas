@@ -35,6 +35,9 @@ export type NavigationGroup = {
 
 export type DashboardSnapshot = {
   available: boolean;
+  empty?: boolean;
+  apiConnected?: boolean;
+  supabaseConnected?: boolean;
   metrics: DashboardMetric[];
   operational: DashboardMetric[];
   bases: BaseStatus[];

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.core.tratamento import normalizar_cnpj, slug_coluna
+from .tratamento import normalizar_cnpj, slug_coluna
 
 
 STATUS_RECADOS_VALIDOS = {"Pendente", "Em andamento", "Concluido", "Conclu\u00eddo"}

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from backend.core.tratamento import formatar_moeda, formatar_percentual
+from .tratamento import formatar_moeda, formatar_percentual
 
 
 def _pascoa(ano: int) -> date:

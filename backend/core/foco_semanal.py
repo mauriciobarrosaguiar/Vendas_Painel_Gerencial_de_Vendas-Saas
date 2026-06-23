@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from backend.core.tratamento import normalizar_texto_alto
+from .tratamento import normalizar_texto_alto
 
 
 REGRAS_MOLECULAS = [

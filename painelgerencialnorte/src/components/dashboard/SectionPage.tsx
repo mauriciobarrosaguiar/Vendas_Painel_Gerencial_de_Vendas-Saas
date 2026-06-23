@@ -19,7 +19,7 @@ export function SectionPage({ title, description, columns = ["Item", "Status", "
         <ExportButton label="Exportar Excel" />
       </div>
       <FilterPanel />
-      <DataTable columns={columns} emptyText="Aguardando API Python ligada ao backend/core." />
+      <DataTable columns={columns} emptyText="Nenhuma base importada ainda." />
     </div>
   );
 }

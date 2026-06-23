@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from backend.core.tratamento import (
+from .tratamento import (
     STATUS_CANCELADO,
     STATUS_FATURADOS,
     TIPO_SEM_CLASSIFICACAO,

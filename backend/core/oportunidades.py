@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.core.calculos import gerar_resultado_cliente, gerar_resultado_sip
-from backend.core.sip_store import normalizar_grupo_sip
-from backend.core.tratamento import normalizar_texto_alto
+from .calculos import gerar_resultado_cliente, gerar_resultado_sip
+from .sip_store import normalizar_grupo_sip
+from .tratamento import normalizar_texto_alto
 
 
 def _prioridade(cliente: pd.Series, motivo: str) -> str:

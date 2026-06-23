@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from backend.core.tratamento import CHAVES_DEDUP_PEDIDOS, padronizar_colunas
+from .tratamento import CHAVES_DEDUP_PEDIDOS, padronizar_colunas
 
 
 CHAVES_META = ["ol_sem_combate", "ol_prioritarios", "ol_lancamentos", "clientes_positivados"]

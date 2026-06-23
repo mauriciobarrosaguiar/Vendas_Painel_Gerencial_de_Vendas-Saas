@@ -5,7 +5,7 @@ from io import BytesIO
 import numpy as np
 import pandas as pd
 
-from backend.core.tratamento import converter_numero, formatar_moeda, normalizar_cnpj, normalizar_ean, padronizar_colunas
+from .tratamento import converter_numero, formatar_moeda, normalizar_cnpj, normalizar_ean, padronizar_colunas
 
 
 COLUNAS_MERCADO = [

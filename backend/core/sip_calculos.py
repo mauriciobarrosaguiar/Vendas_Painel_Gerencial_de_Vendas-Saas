@@ -4,9 +4,9 @@ from typing import Any
 
 import pandas as pd
 
-from backend.core.calculos import gerar_resultado_cliente
-from backend.core.sip_store import normalizar_grupo_sip
-from backend.core.tratamento import STATUS_CANCELADO, STATUS_FATURADOS
+from .calculos import gerar_resultado_cliente
+from .sip_store import normalizar_grupo_sip
+from .tratamento import STATUS_CANCELADO, STATUS_FATURADOS
 
 
 CATEGORIA_FATURADO = "Faturado / nota gerada"

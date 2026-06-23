@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from backend.core.tratamento import STATUS_FATURADOS, TIPO_SEM_CLASSIFICACAO
+from .tratamento import STATUS_FATURADOS, TIPO_SEM_CLASSIFICACAO
 
 
 COLUNAS_ANALISE_ACOES = [

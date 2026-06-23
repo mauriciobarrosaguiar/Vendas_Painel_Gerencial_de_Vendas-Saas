@@ -7,7 +7,7 @@ from typing import Mapping
 
 import pandas as pd
 
-from backend.core.tratamento import (
+from .tratamento import (
     COLUNAS_ACOES,
     COLUNAS_BUSSOLA,
     COLUNAS_CONTATO,
@@ -118,7 +118,15 @@ def ler_painel_bytes(conteudo: bytes) -> pd.DataFrame:
             return ler_excel_bytes(conteudo, 0)
 
 
-def ler_base_bytes(chave: str, conteudo: bytes) -> pd.DataFrame:
+def ler_csv_bytes(conteudo: bytes) -> pd.DataFrame:
+    if not conteudo:
+        return pd.DataFrame()
+    return pd.read_csv(BytesIO(conteudo), dtype=str, sep=None, engine="python")
+
+
+def ler_base_bytes(chave: str, conteudo: bytes, nome_arquivo: str | None = None) -> pd.DataFrame:
+    if nome_arquivo and nome_arquivo.lower().endswith(".csv"):
+        return ler_csv_bytes(conteudo)
     if chave == "painel":
         return ler_painel_bytes(conteudo)
     return ler_excel_bytes(conteudo, ABAS_PADRAO.get(chave, 0))
@@ -145,9 +153,9 @@ def carregar_bases_de_arquivos(root_dir: Path | str) -> BasesRaw:
     return carregar_bases_de_bytes(dados)
 
 
-def validar_upload_generico(chave: str, conteudo: bytes) -> tuple[bool, str]:
+def validar_upload_generico(chave: str, conteudo: bytes, nome_arquivo: str | None = None) -> tuple[bool, str]:
     try:
-        bruto = ler_base_bytes(chave, conteudo)
+        bruto = ler_base_bytes(chave, conteudo, nome_arquivo)
     except Exception as exc:
         return False, f"Nao consegui ler o arquivo enviado: {exc}"
     if bruto.empty:

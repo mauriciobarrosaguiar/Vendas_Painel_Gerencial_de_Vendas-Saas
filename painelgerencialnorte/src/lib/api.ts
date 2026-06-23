@@ -2,7 +2,11 @@ import type { DashboardSnapshot } from "./types";
 import { formatCurrency, formatInteger, formatPercent } from "./formatters";
 
 type DashboardApiResponse = {
-  available: boolean;
+  ok?: boolean;
+  available?: boolean;
+  empty?: boolean;
+  api_connected?: boolean;
+  supabase_connected?: boolean;
   message?: string;
   indicadores?: {
     ol_sem_combate?: number;
@@ -25,22 +29,34 @@ type DashboardApiResponse = {
     pedidos_cancelados?: number;
     valor_cancelado?: number;
   };
+  bases?: Array<{
+    name: string;
+    type: string;
+    updatedAt: string;
+    source: string;
+    status: "ok" | "missing" | "invalid";
+  }>;
 };
 
-const FALLBACK_SNAPSHOT: DashboardSnapshot = {
+const EMPTY_MESSAGE = "Nenhuma base importada ainda";
+
+const EMPTY_SNAPSHOT: DashboardSnapshot = {
   available: false,
-  message: "APIs Python e Supabase ainda nao configurados nesta etapa. O backend/core ja preserva os calculos e esta coberto por testes.",
+  empty: true,
+  apiConnected: false,
+  supabaseConnected: false,
+  message: EMPTY_MESSAGE,
   metrics: [
-    { label: "OL sem combate", value: "-", detail: "Calculado por backend/core.calculos" },
-    { label: "OL prioritarios", value: "-", detail: "Mesmo criterio do Streamlit" },
-    { label: "OL lancamentos", value: "-", detail: "Mesmo criterio do Streamlit" },
-    { label: "Clientes com venda", value: "-", detail: "CNPJ unico com OL sem combate > 0" },
+    { label: "OL sem combate", value: "-", detail: "Aguardando base Bussola" },
+    { label: "OL prioritarios", value: "-", detail: "Aguardando Produtos / Mix" },
+    { label: "OL lancamentos", value: "-", detail: "Aguardando Produtos / Mix" },
+    { label: "Clientes com venda", value: "-", detail: "Aguardando Painel clientes" },
   ],
   operational: [
-    { label: "Pedidos faturados", value: "-", detail: "STATUS_FATURADOS" },
-    { label: "Pedidos sem nota", value: "-", detail: "nota_fiscal vazia e nao cancelado" },
-    { label: "Cancelados", value: "-", detail: "STATUS_CANCELADO" },
-    { label: "Valor sem nota", value: "-", detail: "valor_total_solicitado_sem_imposto" },
+    { label: "Pedidos faturados", value: "-", detail: EMPTY_MESSAGE },
+    { label: "Pedidos sem nota", value: "-", detail: EMPTY_MESSAGE },
+    { label: "Cancelados", value: "-", detail: EMPTY_MESSAGE },
+    { label: "Valor sem nota", value: "-", detail: EMPTY_MESSAGE },
   ],
   bases: [
     { name: "Bussola", type: "bussola", updatedAt: "-", source: "Supabase Storage", status: "missing" },
@@ -49,23 +65,36 @@ const FALLBACK_SNAPSHOT: DashboardSnapshot = {
   ],
 };
 
-function getBackendUrl(path: string): string | null {
-  const base = process.env.BACKEND_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL;
-  if (!base || base.startsWith("/")) {
-    return null;
+export function apiPath(path: string): string {
+  const base = process.env.NEXT_PUBLIC_BACKEND_URL || "/api";
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  if (base.startsWith("http")) {
+    return new URL(cleanPath.replace(/^\//, ""), base.endsWith("/") ? base : `${base}/`).toString();
   }
-  return new URL(path.replace(/^\//, ""), base.endsWith("/") ? base : `${base}/`).toString();
+  return `${base.replace(/\/$/, "")}${cleanPath}`;
 }
 
 function snapshotFromApi(payload: DashboardApiResponse): DashboardSnapshot {
-  if (!payload.available || !payload.indicadores || !payload.resumo_operacional) {
-    return { ...FALLBACK_SNAPSHOT, message: payload.message ?? FALLBACK_SNAPSHOT.message };
+  const baseSnapshot: DashboardSnapshot = {
+    ...EMPTY_SNAPSHOT,
+    apiConnected: Boolean(payload.api_connected ?? payload.ok),
+    supabaseConnected: Boolean(payload.supabase_connected),
+    message: payload.message ?? EMPTY_MESSAGE,
+    bases: payload.bases?.length ? payload.bases : EMPTY_SNAPSHOT.bases,
+  };
+
+  if (payload.empty || !payload.available || !payload.indicadores || !payload.resumo_operacional) {
+    return baseSnapshot;
   }
 
   const indicadores = payload.indicadores;
   const resumo = payload.resumo_operacional;
   return {
     available: true,
+    empty: false,
+    apiConnected: true,
+    supabaseConnected: Boolean(payload.supabase_connected),
+    message: payload.message ?? "API conectada",
     metrics: [
       { label: "OL sem combate", value: formatCurrency(indicadores.ol_sem_combate ?? 0), detail: "Faturado sem COMBATE" },
       {
@@ -90,25 +119,39 @@ function snapshotFromApi(payload: DashboardApiResponse): DashboardSnapshot {
       { label: "Cancelados", value: formatInteger(resumo.pedidos_cancelados ?? 0), detail: formatCurrency(resumo.valor_cancelado ?? 0) },
       { label: "Ticket medio", value: formatCurrency(indicadores.ticket_medio ?? 0), detail: `${formatInteger(indicadores.quantidade_pedidos ?? 0)} pedidos` },
     ],
-    bases: [
-      { name: "Bussola", type: "bussola", updatedAt: "API", source: "Backend Python", status: "ok" },
-      { name: "Painel clientes", type: "painel", updatedAt: "API", source: "Backend Python", status: "ok" },
-      { name: "Produtos / Mix", type: "produtos_mix", updatedAt: "API", source: "Backend Python", status: "ok" },
-    ],
+    bases: payload.bases?.length ? payload.bases : EMPTY_SNAPSHOT.bases,
   };
 }
 
-export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
-  const dashboardUrl = getBackendUrl("/dashboard");
-  if (!dashboardUrl) {
-    return FALLBACK_SNAPSHOT;
-  }
-
+export async function getApiHealth(): Promise<boolean> {
   try {
-    const response = await fetch(dashboardUrl, { cache: "no-store" });
+    const response = await fetch(apiPath("/health"), { cache: "no-store" });
+    const payload = (await response.json()) as { ok?: boolean };
+    return Boolean(response.ok && payload.ok);
+  } catch {
+    return false;
+  }
+}
+
+export async function getDashboardSnapshot(token?: string): Promise<DashboardSnapshot> {
+  try {
+    const response = await fetch(apiPath("/dashboard"), {
+      cache: "no-store",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) {
+      return {
+        ...EMPTY_SNAPSHOT,
+        apiConnected: response.status !== 500,
+        message: response.status === 401 ? "Entre para carregar os dados da empresa." : "Falha ao carregar dados. Verifique configuracao da API/Supabase.",
+      };
+    }
     const payload = (await response.json()) as DashboardApiResponse;
     return snapshotFromApi(payload);
   } catch {
-    return FALLBACK_SNAPSHOT;
+    return {
+      ...EMPTY_SNAPSHOT,
+      message: "Falha ao carregar dados. Verifique configuracao da API/Supabase.",
+    };
   }
 }

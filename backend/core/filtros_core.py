@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from backend.core.tratamento import STATUS_CANCELADO, STATUS_FATURADOS
+from .tratamento import STATUS_CANCELADO, STATUS_FATURADOS
 
 
 def _opcoes(series: pd.Series) -> list[str]:

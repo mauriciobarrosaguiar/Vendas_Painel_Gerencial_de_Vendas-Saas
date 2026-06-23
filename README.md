@@ -52,7 +52,7 @@ No Vercel Services, a variável `BACKEND_URL` é gerada automaticamente para o s
 1. Crie o projeto a partir da raiz do repositório.
 2. Em Project Settings, escolha o Framework Preset `Services`.
 3. Configure as variáveis de `.env.example`.
-4. Rode as migrações em `supabase/schema.sql`, depois `supabase/policies.sql` e `supabase/seed.sql`.
+4. Rode as migrações em `supabase/schema.sql`, depois `supabase/policies.sql`, `supabase/seed.sql` e `supabase/storage.sql`.
 5. Faça o deploy da branch `main`.
 
 ## Streamlit legado

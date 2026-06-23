@@ -1,13 +1,13 @@
 import { UploadBaseCard } from "@/components/ui/UploadBaseCard";
 
 const bases = [
-  ["Bussola", "bussola.xlsx na aba Pedidos"],
-  ["Painel clientes", "PAINEL EQUIPE NORTE.xlsx na aba Planilha1"],
-  ["Produtos / Mix", "Template com EAN, produto e tipo_mix"],
-  ["Acoes promocionais", "Campanhas, EANs, datas, desconto e status"],
-  ["Mercado Farma", "Precos, estoque, UF e distribuidora"],
-  ["Produtos Mercado Farma", "Lista de EANs para extracao"],
-  ["Historico Bussola", "bussola_historico.xlsx na aba Pedidos"],
+  ["Bussola", "bussola.xlsx na aba Pedidos", "bussola"],
+  ["Painel clientes", "PAINEL EQUIPE NORTE.xlsx na aba Planilha1", "painel"],
+  ["Produtos / Mix", "Template com EAN, produto e tipo_mix", "produtos_mix"],
+  ["Acoes promocionais", "Campanhas, EANs, datas, desconto e status", "acoes"],
+  ["Mercado Farma", "Precos, estoque, UF e distribuidora", "mercado_farma"],
+  ["Produtos Mercado Farma", "Lista de EANs para extracao", "produtos_mercado_farma"],
+  ["Historico Bussola", "bussola_historico.xlsx na aba Pedidos", "bussola_historico"],
 ];
 
 export default function ImportacaoPage() {
@@ -20,8 +20,8 @@ export default function ImportacaoPage() {
         </p>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {bases.map(([title, description]) => (
-          <UploadBaseCard key={title} title={title} description={description} />
+        {bases.map(([title, description, typeBase]) => (
+          <UploadBaseCard key={typeBase} title={title} description={description} typeBase={typeBase} />
         ))}
       </div>
     </div>

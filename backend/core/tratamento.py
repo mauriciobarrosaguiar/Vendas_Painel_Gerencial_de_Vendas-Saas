@@ -8,7 +8,7 @@ import unicodedata
 import numpy as np
 import pandas as pd
 
-from backend.core.datas import hoje_brasilia
+from .datas import hoje_brasilia
 
 
 TIPOS_MIX_VALIDOS = ["PRIORITARIO", "LANCAMENTO", "LINHA", "COMBATE"]

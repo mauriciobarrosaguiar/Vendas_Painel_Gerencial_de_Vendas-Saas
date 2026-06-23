@@ -8,6 +8,7 @@ type UploadBaseCardProps = {
   title: string;
   description: string;
   typeBase: string;
+  modelUrl?: string;
 };
 
 type UploadState = {
@@ -16,7 +17,18 @@ type UploadState = {
   tone: "muted" | "ok" | "error";
 };
 
-export function UploadBaseCard({ title, description, typeBase }: UploadBaseCardProps) {
+type ImportResponse = {
+  message?: string;
+  detail?: string;
+  base?: {
+    nome_arquivo?: string;
+    linhas?: number;
+    colunas?: number;
+    created_at?: string;
+  } | null;
+};
+
+export function UploadBaseCard({ title, description, typeBase, modelUrl }: UploadBaseCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<UploadState>({
     loading: false,
@@ -51,11 +63,15 @@ export function UploadBaseCard({ title, description, typeBase }: UploadBaseCardP
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-      const payload = (await response.json().catch(() => ({}))) as { message?: string; detail?: string };
+      const payload = (await response.json().catch(() => ({}))) as ImportResponse;
       if (!response.ok) {
         throw new Error(payload.detail || payload.message || "Falha ao importar arquivo.");
       }
-      setState({ loading: false, message: payload.message || "Base importada com sucesso.", tone: "ok" });
+      const base = payload.base;
+      const detalhes = base
+        ? `${base.nome_arquivo || file.name} importado. Linhas: ${base.linhas ?? "-"}. Colunas: ${base.colunas ?? "-"}.`
+        : payload.message || "Base importada com sucesso.";
+      setState({ loading: false, message: detalhes, tone: "ok" });
       if (inputRef.current) {
         inputRef.current.value = "";
       }
@@ -77,8 +93,21 @@ export function UploadBaseCard({ title, description, typeBase }: UploadBaseCardP
 
   return (
     <section className="rounded-lg border border-border bg-surface p-4">
-      <h3 className="font-semibold text-foreground">{title}</h3>
-      <p className="mt-1 text-sm text-[#60786c]">{description}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-foreground">{title}</h3>
+          <p className="mt-1 text-sm text-[#60786c]">{description}</p>
+        </div>
+        {modelUrl ? (
+          <a
+            className="focus-ring shrink-0 rounded-md border border-primary px-3 py-2 text-xs font-semibold text-primary hover:bg-muted"
+            href={modelUrl}
+            download
+          >
+            Baixar modelo
+          </a>
+        ) : null}
+      </div>
       <div className="mt-4 space-y-3">
         <input
           ref={inputRef}

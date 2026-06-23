@@ -1,0 +1,2 @@
+consultor	uf	cnpj_referencia	ean	produto	distribuidora	estoque	desconto	pf_dist	pf_fabrica	preco_com_imposto	preco_sem_imposto	data_atualizacao	status	erro
+Consultor Exemplo	TO	00000000000100	7890000000011	Produto exemplo	Distribuidora Exemplo	100	10	20.00	25.00	18.00	17.00	2026-01-01	OK	

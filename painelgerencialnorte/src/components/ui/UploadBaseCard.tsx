@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react";
 import { apiPath } from "@/lib/api";
-import { createClient } from "@/lib/supabase/client";
 
 type UploadBaseCardProps = {
   title: string;
@@ -45,14 +44,6 @@ export function UploadBaseCard({ title, description, typeBase, modelUrl }: Uploa
 
     setState({ loading: true, message: "Enviando e validando arquivo...", tone: "muted" });
 
-    const supabase = createClient();
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) {
-      setState({ loading: false, message: "Entre no painel antes de importar bases.", tone: "error" });
-      return;
-    }
-
     const formData = new FormData();
     formData.append("tipo_base", typeBase);
     formData.append("arquivo", file);
@@ -60,7 +51,6 @@ export function UploadBaseCard({ title, description, typeBase, modelUrl }: Uploa
     try {
       const response = await fetch(apiPath("/importacao"), {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
       const payload = (await response.json().catch(() => ({}))) as ImportResponse;

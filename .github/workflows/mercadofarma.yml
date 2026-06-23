@@ -1,0 +1,160 @@
+name: Mercado Farma por UF
+run-name: Mercado Farma / ${{ inputs.acao }} / ${{ inputs.ufs || inputs.uf || 'todas' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      acao:
+        description: "Acao solicitada pelo painel"
+        required: true
+        default: "atualizar_mercadofarma_paralelo"
+      ufs:
+        description: "UFs separadas por virgula. Vazio executa todas."
+        required: false
+        default: "MA,MT,PA,PI,TO"
+      uf:
+        description: "Compatibilidade: UF ou UFs separadas por virgula."
+        required: false
+        default: ""
+      limite_eans:
+        description: "Limite de EANs para teste. 0 executa todos."
+        required: false
+        default: "0"
+      command_id:
+        description: "Identificador do disparo pelo painel"
+        required: false
+        default: ""
+      headless:
+        description: "Rodar navegador oculto"
+        required: false
+        default: "true"
+      mercadofarma_usuario:
+        description: "Usuario GD Mercado Farma enviado pelo painel"
+        required: false
+        default: ""
+      mercadofarma_senha:
+        description: "Senha GD Mercado Farma enviada pelo painel"
+        required: false
+        default: ""
+      persistence_key:
+        description: "Chave de persistencia enviada pelo painel"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  extrair_uf:
+    if: ${{ inputs.acao == 'atualizar_mercadofarma_paralelo' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        uf: [MA, MT, PA, PI, TO]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Diagnosticar navegador
+        run: |
+          echo "Chrome disponivel:"
+          which google-chrome || true
+          google-chrome --version || true
+          echo "ChromeDriver disponivel:"
+          which chromedriver || true
+          chromedriver --version || true
+
+      - name: Extrair UF ${{ matrix.uf }}
+        if: ${{ (inputs.ufs == '' && inputs.uf == '') || contains(inputs.ufs, matrix.uf) || contains(inputs.uf, matrix.uf) }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_BRANCH: ${{ github.ref_name }}
+          GITHUB_STORAGE_BRANCH: app-storage
+          PERSISTENCE_KEY: ${{ secrets.PERSISTENCE_KEY || inputs.persistence_key }}
+          MERCADOFARMA_USUARIO: ${{ secrets.MERCADOFARMA_USUARIO || inputs.mercadofarma_usuario }}
+          MERCADOFARMA_SENHA: ${{ secrets.MERCADOFARMA_SENHA || inputs.mercadofarma_senha }}
+        run: |
+          if [ -n "$MERCADOFARMA_USUARIO" ]; then
+            echo "::add-mask::$MERCADOFARMA_USUARIO"
+          fi
+          if [ -n "$MERCADOFARMA_SENHA" ]; then
+            echo "::add-mask::$MERCADOFARMA_SENHA"
+          fi
+          if [ -n "$PERSISTENCE_KEY" ]; then
+            echo "::add-mask::$PERSISTENCE_KEY"
+          fi
+          echo "Iniciando extracao Mercado Farma para UF ${{ matrix.uf }}"
+          EXTRA_ARGS=""
+          if [ "${{ inputs.headless }}" = "false" ]; then
+            EXTRA_ARGS="--visivel"
+          fi
+          python automacoes/mercadofarma.py --uf "${{ matrix.uf }}" --limite-eans "${{ inputs.limite_eans }}" $EXTRA_ARGS
+
+      - name: Publicar artifact da UF ${{ matrix.uf }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mercadofarma-${{ matrix.uf }}
+          if-no-files-found: ignore
+          path: |
+            data/mercadofarma/parciais/mercadofarma_${{ matrix.uf }}.csv
+            data/mercadofarma/status/mercadofarma_${{ matrix.uf }}.json
+            data/mercadofarma/debug/${{ matrix.uf }}/**
+
+  consolidar_mercadofarma:
+    if: ${{ always() && inputs.acao == 'atualizar_mercadofarma_paralelo' }}
+    runs-on: ubuntu-latest
+    needs: extrair_uf
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar pandas
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas openpyxl
+
+      - name: Baixar artifacts das UFs
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: mercadofarma-*
+          merge-multiple: true
+          path: data/mercadofarma/parciais
+
+      - name: Consolidar Mercado Farma
+        run: python scripts/consolidar_mercadofarma.py
+
+      - name: Salvar consolidado no repositorio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A data/mercadofarma
+          if git diff --staged --quiet; then
+            echo "Nenhuma alteracao para publicar."
+          else
+            git commit -m "Atualiza Mercado Farma consolidado"
+            git push
+          fi

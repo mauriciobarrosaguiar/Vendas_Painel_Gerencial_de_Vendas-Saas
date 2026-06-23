@@ -1,0 +1,10 @@
+streamlit
+pandas
+openpyxl
+plotly
+numpy
+selenium
+webdriver-manager
+requests
+cryptography
+playwright

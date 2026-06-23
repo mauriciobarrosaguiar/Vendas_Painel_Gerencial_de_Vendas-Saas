@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "experimentalServices": {
+    "frontend": {
+      "entrypoint": "painelgerencialnorte",
+      "routePrefix": "/"
+    },
+    "backend": {
+      "entrypoint": "backend/main.py",
+      "routePrefix": "/api",
+      "maxDuration": 300,
+      "excludeFiles": "{tests/**,.codex-remote-attachments/**,data/**,*.log,**/__pycache__/**,painelgerencialnorte/**}"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+-r requirements.txt
+fastapi>=0.117.1
+pytest
+uvicorn[standard]

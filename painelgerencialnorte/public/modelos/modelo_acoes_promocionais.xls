@@ -1,0 +1,2 @@
+campanha	produto	ean	tipo_mix	distribuidora	desconto	data_inicio	data_fim	consultor	observacao	status
+Campanha Exemplo	Produto exemplo prioritario	7890000000011	PRIORITARIO	Distribuidora Exemplo	10	2026-01-01	2026-01-31	Consultor Exemplo	Acao ficticia	ATIVA

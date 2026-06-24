@@ -23,6 +23,7 @@ class UserContext:
 
 
 _client: Any | None = None
+_PUBLIC_EMPRESA_ID_FALLBACK = "38795669-3da2-4227-9248-d1c607e54b31"
 
 
 def _env(name: str) -> str:
@@ -40,7 +41,11 @@ def public_panel_mode() -> bool:
 
 
 def public_empresa_slug() -> str:
-    return _env("PUBLIC_EMPRESA_SLUG") or "equipe-norte"
+    return _env("PUBLIC_EMPRESA_SLUG") or _env("SUPABASE_EMPRESA_SLUG") or "equipe-norte"
+
+
+def public_empresa_id() -> str:
+    return _env("PUBLIC_EMPRESA_ID") or _env("SUPABASE_EMPRESA_ID") or _env("NEXT_PUBLIC_EMPRESA_ID")
 
 
 def get_supabase_url() -> str:
@@ -101,8 +106,23 @@ def _auth_user_id(user_response: Any) -> tuple[str | None, str]:
 
 
 def get_default_empresa_id(slug: str | None = None) -> str | None:
-    client = get_supabase_client()
+    """Resolve a empresa padrão.
+
+    Em produção pública na Vercel, chamar o Supabase apenas para descobrir a
+    empresa causava erro intermitente de conexão quando a página carregava várias
+    APIs ao mesmo tempo. Por isso, usamos primeiro a env SUPABASE_EMPRESA_ID ou
+    PUBLIC_EMPRESA_ID. Para este projeto, mantemos também o fallback do seed
+    oficial da Equipe Norte.
+    """
+    env_empresa_id = public_empresa_id()
+    if env_empresa_id:
+        return env_empresa_id
+
     slug = (slug or public_empresa_slug()).strip()
+    if slug == "equipe-norte":
+        return _PUBLIC_EMPRESA_ID_FALLBACK
+
+    client = get_supabase_client()
     if slug:
         try:
             response = client.table("core_empresas").select("id").eq("slug", slug).eq("ativo", True).limit(1).execute()

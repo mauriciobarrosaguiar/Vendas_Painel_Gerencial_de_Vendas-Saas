@@ -15,9 +15,21 @@ type MercadoStatus = {
   available_ufs?: string[];
   total_eans?: number;
   tem_painel?: boolean;
+  tem_produtos_mix?: boolean;
   tem_produtos_mercado?: boolean;
+  vendedores_gd?: GdVendedor[];
   runs?: RunSummary[];
   runs_error?: string;
+};
+
+type GdVendedor = {
+  gd: string;
+  setor: string;
+  vendedor: string;
+  ufs: string[];
+  clientes_ativos: number;
+  total_vendedores_gd: number;
+  total_clientes_gd: number;
 };
 
 type BussolaStatus = {
@@ -117,6 +129,9 @@ export function AutomationImportPanel() {
   const mercadoRun = latestRun(mercadoStatus.runs);
   const bussolaRun = latestRun(bussolaStatus.runs);
   const availableUfs = useMemo(() => mercadoStatus.available_ufs ?? [], [mercadoStatus.available_ufs]);
+  const vendedoresGd = mercadoStatus.vendedores_gd ?? [];
+  const missingPainel = mercadoStatus.tem_painel === false;
+  const missingProdutosMix = mercadoStatus.tem_produtos_mix === false || (!mercadoStatus.tem_produtos_mix && (mercadoStatus.total_eans ?? 0) === 0);
 
   const authToken = useCallback(async () => {
     return "";
@@ -301,6 +316,12 @@ export function AutomationImportPanel() {
             <p className="mt-1 text-sm text-[#60786c]">
               UFs detectadas pela base de clientes ativa. EANs na lista: {mercadoStatus.total_eans ?? 0}.
             </p>
+            {missingProdutosMix ? (
+              <p className="mt-1 text-sm text-[#a33a2a]">Importe Produtos / Mix para gerar lista de EANs.</p>
+            ) : null}
+            {missingPainel ? (
+              <p className="mt-1 text-sm text-[#a33a2a]">Importe Painel clientes para listar UFs.</p>
+            ) : null}
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-sm font-medium text-[#355242]">
@@ -335,7 +356,7 @@ export function AutomationImportPanel() {
                 </label>
               ))
             ) : (
-              <p className="text-sm text-[#a33a2a]">Importe Painel clientes com UF/CNPJ ativo para listar as UFs.</p>
+              <p className="text-sm text-[#a33a2a]">Importe Painel clientes para listar UFs.</p>
             )}
           </div>
           <label className="block text-sm font-medium text-[#355242]">
@@ -352,7 +373,7 @@ export function AutomationImportPanel() {
             <button
               className="focus-ring rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-[#0f5838] disabled:cursor-not-allowed disabled:opacity-60"
               type="button"
-              disabled={state.loading || selectedUfs.length === 0}
+              disabled={state.loading || selectedUfs.length === 0 || missingProdutosMix || missingPainel}
               onClick={updateSelectedUfs}
             >
               Atualizar UFs selecionadas
@@ -360,7 +381,7 @@ export function AutomationImportPanel() {
             <button
               className="focus-ring rounded-md border border-primary px-4 py-2 text-sm font-semibold text-primary hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
               type="button"
-              disabled={state.loading || availableUfs.length === 0}
+              disabled={state.loading || availableUfs.length === 0 || missingProdutosMix || missingPainel}
               onClick={updateAllUfs}
             >
               Atualizar todas as UFs
@@ -377,6 +398,57 @@ export function AutomationImportPanel() {
             )}
           </p>
           {mercadoStatus.runs_error ? <p className="text-sm text-[#a33a2a]">{mercadoStatus.runs_error}</p> : null}
+        </div>
+      </div>
+
+      <div className="mt-5 border-t border-border pt-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h4 className="font-medium text-foreground">GD e vendedores ativos</h4>
+            <p className="mt-1 text-sm text-[#60786c]">
+              Visao gerada pela base Painel clientes para separar resultados por setor e vendedor.
+            </p>
+          </div>
+          <p className="text-sm text-[#60786c]">{vendedoresGd.length} vendedor(es) ativo(s)</p>
+        </div>
+        <div className="mt-3 overflow-hidden rounded-md border border-border">
+          <div className="max-h-72 overflow-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-muted text-xs uppercase tracking-[0.08em] text-[#5f786c]">
+                <tr>
+                  <th className="px-3 py-2 font-semibold">GD</th>
+                  <th className="px-3 py-2 font-semibold">Setor</th>
+                  <th className="px-3 py-2 font-semibold">Vendedor</th>
+                  <th className="px-3 py-2 font-semibold">UF(s)</th>
+                  <th className="px-3 py-2 text-right font-semibold">Clientes ativos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {vendedoresGd.length ? (
+                  vendedoresGd.map((item) => (
+                    <tr key={`${item.gd}-${item.setor}-${item.vendedor}`} className="border-t border-border">
+                      <td className="px-3 py-2 text-[#183b2d]">
+                        <span className="font-medium">{item.gd}</span>
+                        <span className="block text-xs text-[#60786c]">
+                          {item.total_vendedores_gd} vend. / {item.total_clientes_gd} clientes
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-[#183b2d]">{item.setor}</td>
+                      <td className="px-3 py-2 text-[#183b2d]">{item.vendedor}</td>
+                      <td className="px-3 py-2 text-[#183b2d]">{item.ufs?.join(", ") || "-"}</td>
+                      <td className="px-3 py-2 text-right text-[#183b2d]">{item.clientes_ativos}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td className="px-3 py-6 text-center text-[#60786c]" colSpan={5}>
+                      Importe Painel clientes para montar a visao de GD e vendedores.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-border pt-4">

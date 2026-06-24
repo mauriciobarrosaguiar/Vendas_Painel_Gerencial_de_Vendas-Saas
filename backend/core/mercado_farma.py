@@ -157,15 +157,16 @@ def ufs_validas_clientes(clientes: pd.DataFrame) -> list[str]:
     return sorted(uf for uf in ufs.unique().tolist() if uf in VALID_UFS)
 
 
-def obter_eans_para_consulta(produtos_mercado_farma: pd.DataFrame) -> list[str]:
-    if produtos_mercado_farma is None or produtos_mercado_farma.empty:
+def obter_eans_para_consulta(produtos_mix: pd.DataFrame) -> list[str]:
+    if produtos_mix is None or produtos_mix.empty:
         return []
-    base = padronizar_colunas(produtos_mercado_farma)
+    base = padronizar_colunas(produtos_mix)
     coluna = "ean" if "ean" in base.columns else base.columns[0] if len(base.columns) else ""
     if not coluna:
         return []
     eans = base[coluna].dropna().astype(str).map(normalizar_ean)
-    return sorted(ean for ean in eans.unique().tolist() if ean)
+    tamanhos_validos = {8, 12, 13, 14}
+    return sorted({ean for ean in eans.tolist() if len(ean) in tamanhos_validos})
 
 
 def melhor_preco_por_ean(df: pd.DataFrame) -> pd.DataFrame:

@@ -43,6 +43,10 @@ COLUNAS_CSV = {
     "uf": "UF",
     "consultor": "CONSULTOR_USADO",
     "cnpj_referencia": "CNPJ_REFERENCIA",
+    "nome_gd": "NOME_GD",
+    "setor_rep": "SETOR_REP",
+    "nome_rep": "NOME_REP",
+    "vinculo_painel": "VINCULO_PAINEL",
     "ean": "EAN",
     "produto": "PRODUTO",
     "distribuidora": "DISTRIBUIDORA",
@@ -67,8 +71,43 @@ def _salvar_status(path: Path, status: dict) -> None:
     path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _csv_saida(df: pd.DataFrame) -> pd.DataFrame:
+def _enriquecer_resultados(df: pd.DataFrame, clientes: pd.DataFrame) -> pd.DataFrame:
+    base = df.copy()
+    for coluna in ["nome_gd", "setor_rep", "nome_rep", "vinculo_painel"]:
+        if coluna not in base.columns:
+            base[coluna] = ""
+    if base.empty or clientes is None or clientes.empty:
+        base["vinculo_painel"] = "Sem vinculo no Painel clientes"
+        return base
+
+    painel = clientes.copy()
+    for coluna in ["cnpj_limpo", "cnpj", "nome_gd", "setor_rep", "nome_rep", "uf"]:
+        if coluna not in painel.columns:
+            painel[coluna] = ""
+    painel["cnpj_chave"] = painel["cnpj_limpo"].where(
+        painel["cnpj_limpo"].astype(str).str.strip().ne(""),
+        painel["cnpj"],
+    ).astype(str).str.replace(r"\D+", "", regex=True)
+    painel = painel[painel["cnpj_chave"].str.len().eq(14)].drop_duplicates("cnpj_chave")
+    if painel.empty:
+        base["vinculo_painel"] = "Sem vinculo no Painel clientes"
+        return base
+
+    mapa = painel.set_index("cnpj_chave")[["nome_gd", "setor_rep", "nome_rep", "uf"]]
+    chave = base["cnpj_referencia"].astype(str).str.replace(r"\D+", "", regex=True)
+    for coluna in ["nome_gd", "setor_rep", "nome_rep"]:
+        base[coluna] = chave.map(mapa[coluna]).fillna("")
+    uf_painel = chave.map(mapa["uf"]).fillna("")
+    base["uf"] = base["uf"].where(base["uf"].astype(str).str.strip().ne(""), uf_painel)
+    sem_vinculo = base[["nome_gd", "setor_rep", "nome_rep"]].fillna("").astype(str).eq("").all(axis=1)
+    base.loc[sem_vinculo, "vinculo_painel"] = "Sem vinculo no Painel clientes"
+    base.loc[~sem_vinculo, "vinculo_painel"] = "Painel clientes"
+    return base
+
+
+def _csv_saida(df: pd.DataFrame, clientes: pd.DataFrame) -> pd.DataFrame:
     base = preparar_mercado_farma(df)
+    base = _enriquecer_resultados(base, clientes)
     saida = base.rename(columns=COLUNAS_CSV)
     for coluna in COLUNAS_CSV.values():
         if coluna not in saida.columns:
@@ -84,12 +123,12 @@ def _persistence_key_configurada() -> bool:
     return bool(os.environ.get("PERSISTENCE_KEY"))
 
 
-def _validar_bases_carregadas(clientes: pd.DataFrame, produtos_mercado: pd.DataFrame) -> None:
+def _validar_bases_carregadas(clientes: pd.DataFrame, produtos_mix: pd.DataFrame) -> None:
     faltantes = []
     if clientes is None or clientes.empty:
         faltantes.append("clientes")
-    if produtos_mercado is None or produtos_mercado.empty:
-        faltantes.append("produtos_mercado_farma")
+    if produtos_mix is None or produtos_mix.empty:
+        faltantes.append("produtos_mix")
     if not faltantes:
         return
     if _rodando_no_actions() and not _persistence_key_configurada():
@@ -179,8 +218,8 @@ def main() -> int:
         status["etapa"] = "carregar_bases"
         dados = _carregar_dados_tratados_automacao()
         clientes = dados["clientes"]
-        produtos_mercado = dados["produtos_mercado_farma"]
-        _validar_bases_carregadas(clientes, produtos_mercado)
+        produtos_mix = dados["produtos_mix"]
+        _validar_bases_carregadas(clientes, produtos_mix)
 
         status["etapa"] = "montar_alvos"
         alvos = [alvo for alvo in alvos_mercadofarma_por_uf(clientes, usuario_gd, senha_gd) if alvo.get("uf") == uf]
@@ -198,11 +237,11 @@ def main() -> int:
             _log(f"CNPJs candidatos na UF {uf}: {len(candidatos)}")
 
         status["etapa"] = "carregar_eans"
-        eans = obter_eans_para_consulta(produtos_mercado)
+        eans = obter_eans_para_consulta(produtos_mix)
         if args.limite_eans:
             eans = eans[: args.limite_eans]
         if not eans:
-            raise RuntimeError("Nenhum EAN encontrado na planilha produtos.xlsx.")
+            raise RuntimeError("Importe Produtos / Mix para gerar lista de EANs.")
         status["total_eans"] = len(eans)
         _log(f"Total de EANs carregados: {len(eans)}")
 
@@ -214,7 +253,7 @@ def main() -> int:
         status["cnpj_referencia"] = alvo.get("cnpj", status["cnpj_referencia"])
         status["etapa"] = "salvar_arquivo"
         _log("Etapa atual: salvar arquivo")
-        df = _csv_saida(pd.DataFrame(resultados))
+        df = _csv_saida(pd.DataFrame(resultados), clientes)
         saida_dir.mkdir(parents=True, exist_ok=True)
         df.to_csv(csv_path, index=False, encoding="utf-8-sig")
         total = int(df["EAN"].dropna().astype(str).nunique()) if "EAN" in df.columns else len(df)

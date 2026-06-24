@@ -110,6 +110,9 @@ def extrair_bussola_web_todos(credenciais: list[dict[str, str]], headless: bool 
     with pd.ExcelWriter(destino, engine="openpyxl") as writer:
         combinado.to_excel(writer, sheet_name="Pedidos", index=False)
     salvar_bytes("bussola", destino.read_bytes(), "Atualiza Bússola pelo painel")
+    if callable(log_fn):
+        log_fn("extração concluída com sucesso")
+        log_fn(f"quantidade de linhas: {len(combinado)}")
 
     if erros and callable(log_fn):
         log_fn("Extração concluída com alertas:")

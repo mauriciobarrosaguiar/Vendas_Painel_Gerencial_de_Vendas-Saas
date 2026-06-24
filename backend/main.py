@@ -25,6 +25,7 @@ try:
     from backend.core.calculos import (
         calcular_indicadores,
         calcular_resumo_operacional,
+        gerar_resultado_produto,
         gerar_resultado_cliente,
         gerar_resultado_consultor,
     )
@@ -47,7 +48,9 @@ try:
         COLUNAS_BUSSOLA,
         COLUNAS_PAINEL,
         COLUNAS_PRODUTOS_MIX,
+        normalizar_cnpj,
         preparar_painel_equipe,
+        preparar_produtos_mix,
     )
     from backend.services.github_actions import (
         GitHubActionsConfigError,
@@ -75,6 +78,7 @@ except ModuleNotFoundError as exc:
     from core.calculos import (
         calcular_indicadores,
         calcular_resumo_operacional,
+        gerar_resultado_produto,
         gerar_resultado_cliente,
         gerar_resultado_consultor,
     )
@@ -97,7 +101,9 @@ except ModuleNotFoundError as exc:
         COLUNAS_BUSSOLA,
         COLUNAS_PAINEL,
         COLUNAS_PRODUTOS_MIX,
+        normalizar_cnpj,
         preparar_painel_equipe,
+        preparar_produtos_mix,
     )
     from services.github_actions import (
         GitHubActionsConfigError,
@@ -130,9 +136,9 @@ TIPOS_BASE: dict[str, str] = {
     "produtos_mix": "Produtos / Mix",
     "acoes": "Acoes promocionais",
     "mercado_farma": "Mercado Farma",
-    "produtos_mercado_farma": "Produtos Mercado Farma",
     "bussola_historico": "Historico Bussola",
 }
+TIPO_BASE_ALIASES = {"produtos_mercado_farma": "produtos_mix"}
 EXTENSOES_VALIDAS = {".xlsx", ".xls", ".csv"}
 WORKFLOW_BUSSOLA = "bussola.yml"
 WORKFLOW_MERCADO_FARMA = "mercadofarma.yml"
@@ -307,7 +313,11 @@ def _active_company_files(
         return _base_statuses([]), {}
 
     rows = _active_base_rows(client, empresa_id)
-    return _base_statuses(rows), _download_active_files(client, rows)
+    bases = _base_statuses(rows)
+    try:
+        return bases, _download_active_files(client, rows)
+    except Exception:
+        return bases, {}
 
 
 def _ensure_storage_bucket(client: Any) -> None:
@@ -355,20 +365,108 @@ def _normalize_ufs(ufs: list[str]) -> list[str]:
     return normalized
 
 
+def _vendedores_gd_summary(clientes: pd.DataFrame) -> list[dict[str, Any]]:
+    if clientes is None or clientes.empty:
+        return []
+    base = clientes.copy()
+    for coluna in ["nome_gd", "setor_rep", "nome_rep", "uf", "cnpj_limpo", "cnpj", "cliente_ativo"]:
+        if coluna not in base.columns:
+            base[coluna] = ""
+    if "cliente_ativo" in base.columns:
+        base = base[base["cliente_ativo"].fillna(True)].copy()
+    base["cnpj_resumo"] = base["cnpj_limpo"].where(base["cnpj_limpo"].astype(str).str.strip().ne(""), base["cnpj"])
+    base["cnpj_resumo"] = base["cnpj_resumo"].apply(normalizar_cnpj)
+    base = base[base["cnpj_resumo"].astype(str).str.len().eq(14)].copy()
+    if base.empty:
+        return []
+
+    for coluna in ["nome_gd", "setor_rep", "nome_rep", "uf"]:
+        base[coluna] = base[coluna].fillna("").astype(str).str.strip()
+    base["nome_gd"] = base["nome_gd"].replace("", "SEM GD")
+    base["setor_rep"] = base["setor_rep"].replace("", "SEM SETOR")
+    base["nome_rep"] = base["nome_rep"].replace("", "SEM VENDEDOR")
+    base["uf"] = base["uf"].str.upper()
+
+    totais = (
+        base.groupby("nome_gd", dropna=False)
+        .agg(total_vendedores_gd=("nome_rep", "nunique"), total_clientes_gd=("cnpj_resumo", "nunique"))
+        .to_dict("index")
+    )
+    linhas: list[dict[str, Any]] = []
+    agrupado = base.groupby(["nome_gd", "setor_rep", "nome_rep"], dropna=False)
+    for (gd, setor, vendedor), grupo in agrupado:
+        ufs = sorted({str(uf).strip().upper() for uf in grupo["uf"].dropna().tolist() if str(uf).strip()})
+        total_gd = totais.get(str(gd), {})
+        linhas.append(
+            {
+                "gd": str(gd),
+                "setor": str(setor),
+                "vendedor": str(vendedor),
+                "ufs": ufs,
+                "clientes_ativos": int(grupo["cnpj_resumo"].nunique()),
+                "total_vendedores_gd": int(total_gd.get("total_vendedores_gd", 0) or 0),
+                "total_clientes_gd": int(total_gd.get("total_clientes_gd", 0) or 0),
+            }
+        )
+    return sorted(linhas, key=lambda item: (item["gd"], item["setor"], item["vendedor"]))
+
+
+def _enrich_mercado_with_clients(mercado: pd.DataFrame, clientes: pd.DataFrame) -> pd.DataFrame:
+    if mercado is None or mercado.empty:
+        return mercado.copy() if mercado is not None else pd.DataFrame()
+    base = mercado.copy()
+    for coluna in ["nome_gd", "setor_rep", "nome_rep", "vinculo_painel"]:
+        if coluna not in base.columns:
+            base[coluna] = ""
+    if clientes is None or clientes.empty:
+        base["vinculo_painel"] = "Sem vinculo no Painel clientes"
+        return base
+
+    painel = clientes.copy()
+    for coluna in ["cnpj_limpo", "cnpj", "nome_gd", "setor_rep", "nome_rep", "uf"]:
+        if coluna not in painel.columns:
+            painel[coluna] = ""
+    painel["cnpj_chave"] = painel["cnpj_limpo"].where(
+        painel["cnpj_limpo"].astype(str).str.strip().ne(""),
+        painel["cnpj"],
+    ).apply(normalizar_cnpj)
+    painel = painel[painel["cnpj_chave"].astype(str).str.len().eq(14)].drop_duplicates("cnpj_chave")
+    if painel.empty:
+        base["vinculo_painel"] = "Sem vinculo no Painel clientes"
+        return base
+
+    mapa = painel.set_index("cnpj_chave")[["nome_gd", "setor_rep", "nome_rep", "uf"]]
+    chave = base["cnpj_referencia"].apply(normalizar_cnpj) if "cnpj_referencia" in base.columns else pd.Series("", index=base.index)
+    for coluna in ["nome_gd", "setor_rep", "nome_rep"]:
+        base[coluna] = chave.map(mapa[coluna]).fillna("")
+    uf_painel = chave.map(mapa["uf"]).fillna("")
+    if "uf" in base.columns:
+        base["uf"] = base["uf"].where(base["uf"].astype(str).str.strip().ne(""), uf_painel)
+    sem_vinculo = base[["nome_gd", "setor_rep", "nome_rep"]].fillna("").astype(str).eq("").all(axis=1)
+    base.loc[sem_vinculo, "vinculo_painel"] = "Sem vinculo no Painel clientes"
+    base.loc[~sem_vinculo, "vinculo_painel"] = "Painel clientes"
+    return base
+
+
 def _automation_context(client: Any, empresa_id: str) -> dict[str, Any]:
     rows = _active_base_rows(client, empresa_id)
-    files = _download_active_files(client, rows)
+    try:
+        files = _download_active_files(client, rows)
+    except Exception:
+        files = {}
     bases = _base_statuses(rows)
     raw = _raw_from_files(files)
     clientes = preparar_painel_equipe(raw.painel) if not raw.painel.empty else pd.DataFrame()
     ufs = ufs_validas_clientes(clientes)
-    eans = obter_eans_para_consulta(raw.produtos_mercado_farma)
+    eans = obter_eans_para_consulta(raw.produtos_mix)
     return {
         "bases": bases,
         "ufs": ufs,
         "total_eans": len(eans),
         "tem_painel": "painel" in files,
-        "tem_produtos_mercado": "produtos_mercado_farma" in files,
+        "tem_produtos_mix": "produtos_mix" in files,
+        "tem_produtos_mercado": "produtos_mix" in files,
+        "vendedores_gd": _vendedores_gd_summary(clientes),
     }
 
 
@@ -543,7 +641,9 @@ def automacao_mercado_farma_status(
         "available_ufs": ctx["ufs"],
         "total_eans": ctx["total_eans"],
         "tem_painel": ctx["tem_painel"],
+        "tem_produtos_mix": ctx["tem_produtos_mix"],
         "tem_produtos_mercado": ctx["tem_produtos_mercado"],
+        "vendedores_gd": ctx["vendedores_gd"],
         "bases": ctx["bases"],
         "runs": runs,
         "runs_error": runs_error,
@@ -599,6 +699,10 @@ def automacao_mercado_farma_disparar(
     client = get_supabase_client()
     ctx = _automation_context(client, context.empresa_id)
     available_ufs = list(ctx["ufs"])
+    if not ctx["tem_painel"]:
+        raise HTTPException(status_code=400, detail="Importe Painel clientes para listar UFs.")
+    if not ctx["tem_produtos_mix"] or int(ctx["total_eans"] or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Importe Produtos / Mix para gerar lista de EANs.")
     selected_ufs = available_ufs if payload.todas_ufs else _normalize_ufs(payload.ufs)
     if not selected_ufs:
         raise HTTPException(status_code=400, detail="Selecione ao menos uma UF com cliente ativo.")
@@ -609,8 +713,6 @@ def automacao_mercado_farma_disparar(
             status_code=400,
             detail="UF sem cliente ativo/CNPJ referencia na base atual: " + ", ".join(unavailable),
         )
-    if not ctx["tem_produtos_mercado"]:
-        raise HTTPException(status_code=400, detail="Importe Produtos Mercado Farma antes de atualizar os precos.")
 
     command_id = uuid4().hex
     inputs = {
@@ -755,7 +857,10 @@ def mercado_farma(
             return {"ok": True, "available": False, "message": "Nenhuma base importada ainda", "melhores_precos": [], "bases": bases}
         raw = _raw_from_files(files)
         mercado = preparar_mercado_farma(raw.mercado_farma)
+        clientes = preparar_painel_equipe(raw.painel) if "painel" in files else pd.DataFrame()
+        mercado = _enrich_mercado_with_clients(mercado, clientes)
         melhores = melhor_preco_por_ean(mercado)
+        melhores = _enrich_mercado_with_clients(melhores, clientes)
         return {"ok": True, "available": True, "melhores_precos": _records(melhores), "bases": bases}
     except PermissionError as exc:
         raise _auth_error(exc) from exc
@@ -774,7 +879,6 @@ def templates() -> dict[str, Any]:
             {"modelo": "Produtos / Mix", "arquivo": "modelo_produtos_mix.xlsx", "aba": "Produtos", "download": "/modelos/modelo_produtos_mix.xlsx"},
             {"modelo": "Acoes promocionais", "arquivo": "modelo_acoes_promocionais.xlsx", "aba": "Acoes", "download": "/modelos/modelo_acoes_promocionais.xlsx"},
             {"modelo": "Mercado Farma", "arquivo": "modelo_mercado_farma.xlsx", "aba": "Mercado Farma", "download": "/modelos/modelo_mercado_farma.xlsx"},
-            {"modelo": "Produtos Mercado Farma", "arquivo": "modelo_produtos_mercado_farma.xlsx", "aba": "Produtos", "download": "/modelos/modelo_produtos_mercado_farma.xlsx"},
             {"modelo": "Historico Bussola", "arquivo": "modelo_bussola_historico.xlsx", "aba": "Pedidos", "download": "/modelos/modelo_bussola_historico.xlsx"},
         ],
         "templates": {
@@ -786,6 +890,95 @@ def templates() -> dict[str, Any]:
     }
 
 
+@app.get("/produtos-mix")
+@app.get("/api/produtos-mix", include_in_schema=False)
+def produtos_mix_status(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> Any:
+    if not is_supabase_configured():
+        return {"ok": True, "available": False, "message": "Supabase nao configurado.", "produtos": [], "bases": _base_statuses([])}
+    try:
+        bases, files = _active_company_files(authorization, x_empresa_id)
+        if "produtos_mix" not in files:
+            return {"ok": True, "available": False, "message": "Nenhuma base Produtos / Mix importada ainda.", "produtos": [], "bases": bases}
+        raw = _raw_from_files(files)
+        produtos = preparar_produtos_mix(raw.produtos_mix)
+        if "bussola" in files and "painel" in files:
+            dados = tratar_bases(raw)
+            resultado = gerar_resultado_produto(dados["vendas"], dados["produtos_mix"])
+        else:
+            resultado = produtos.rename(columns={"ean": "ean_mix"}).copy()
+            resultado["ean"] = resultado.get("ean_limpo", resultado.get("ean_mix", ""))
+            resultado["ol_total"] = 0
+            resultado["quantidade_vendida"] = 0
+            resultado["clientes_compradores"] = 0
+            resultado["consultores_que_venderam"] = ""
+            resultado = resultado[["ean", "produto", "tipo_mix", "ol_total", "quantidade_vendida", "clientes_compradores", "consultores_que_venderam"]]
+        rows = []
+        for item in _records(resultado, limit=300):
+            rows.append(
+                {
+                    "EAN": item.get("ean", ""),
+                    "Produto": item.get("produto", ""),
+                    "Tipo mix": item.get("tipo_mix", ""),
+                    "OL sem combate": item.get("ol_total", 0),
+                    "Quantidade": item.get("quantidade_vendida", 0),
+                    "Clientes": item.get("clientes_compradores", 0),
+                }
+            )
+        return {
+            "ok": True,
+            "available": True,
+            "message": "Produtos / Mix carregado.",
+            "total_produtos": int(len(produtos)),
+            "produtos": rows,
+            "bases": bases,
+        }
+    except PermissionError as exc:
+        raise _auth_error(exc) from exc
+    except Exception as exc:
+        return _unavailable(exc)
+
+
+@app.get("/importacao")
+@app.get("/api/importacao", include_in_schema=False)
+def importacao_status(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> Any:
+    if not is_supabase_configured():
+        return {
+            "ok": True,
+            "available": False,
+            "message": "Supabase nao configurado.",
+            "bases": _base_statuses([]),
+            "mercado_farma": {"available_ufs": [], "total_eans": 0, "tem_painel": False, "tem_produtos_mix": False},
+            "vendedores_gd": [],
+        }
+    try:
+        context = _require_context(authorization, x_empresa_id)
+        client = get_supabase_client()
+        ctx = _automation_context(client, context.empresa_id)
+        return {
+            "ok": True,
+            "available": True,
+            "message": "Status de importacao carregado.",
+            "bases": ctx["bases"],
+            "mercado_farma": {
+                "available_ufs": ctx["ufs"],
+                "total_eans": ctx["total_eans"],
+                "tem_painel": ctx["tem_painel"],
+                "tem_produtos_mix": ctx["tem_produtos_mix"],
+            },
+            "vendedores_gd": ctx["vendedores_gd"],
+        }
+    except PermissionError as exc:
+        raise _auth_error(exc) from exc
+    except Exception as exc:
+        return _unavailable(exc)
+
+
 @app.post("/importacao")
 @app.post("/api/importacao", include_in_schema=False)
 async def importacao(
@@ -795,6 +988,7 @@ async def importacao(
     authorization: str | None = Header(default=None),
     x_empresa_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    tipo_base = TIPO_BASE_ALIASES.get(tipo_base, tipo_base)
     if tipo_base not in TIPOS_BASE:
         raise HTTPException(status_code=400, detail="tipo_base invalido.")
     filename = _safe_filename(arquivo.filename or "")

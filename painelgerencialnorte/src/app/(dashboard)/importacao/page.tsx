@@ -11,9 +11,7 @@ export default function ImportacaoPage() {
           Envie as bases pelo painel, salve os logins das automacoes e use os modelos antes de importar.
         </p>
       </div>
-
       <AutomationImportPanel />
-
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {baseTemplates.map((base) => (
           <UploadBaseCard

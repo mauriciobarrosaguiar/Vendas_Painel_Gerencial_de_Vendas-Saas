@@ -16,7 +16,6 @@ export const baseTemplates: BaseTemplate[] = [
   { typeBase: "produtos_mix", title: "Produtos / Mix", description: "Classificacao de produtos", arquivo: "modelo_produtos_mix.xlsx", aba: "Produtos", modelUrl: "/modelos/modelo_produtos_mix.xlsx", colunas: ["ean", "produto", "tipo_mix"] },
   { typeBase: "acoes", title: "Acoes promocionais", description: "Campanhas e descontos", arquivo: "modelo_acoes_promocionais.xlsx", aba: "Acoes", modelUrl: "/modelos/modelo_acoes_promocionais.xlsx", colunas: ["campanha", "produto", "ean", "tipo_mix", "distribuidora", "desconto", "data_inicio", "data_fim", "consultor", "observacao", "status"] },
   { typeBase: "mercado_farma", title: "Mercado Farma", description: "Precos e estoque", arquivo: "modelo_mercado_farma.xlsx", aba: "Mercado Farma", modelUrl: "/modelos/modelo_mercado_farma.xlsx", colunas: ["consultor", "uf", "cnpj_referencia", "ean", "produto", "distribuidora", "estoque", "desconto", "pf_dist", "pf_fabrica", "preco_com_imposto", "preco_sem_imposto", "data_atualizacao", "status", "erro"] },
-  { typeBase: "produtos_mercado_farma", title: "Produtos Mercado Farma", description: "EANs para extracao", arquivo: "modelo_produtos_mercado_farma.xlsx", aba: "Produtos", modelUrl: "/modelos/modelo_produtos_mercado_farma.xlsx", colunas: ["ean", "produto"] },
   { typeBase: "bussola_historico", title: "Historico Bussola", description: "Historico de pedidos", arquivo: "modelo_bussola_historico.xlsx", aba: "Pedidos", modelUrl: "/modelos/modelo_bussola_historico.xlsx", colunas: bussolaColumns },
 ];
 

@@ -23,7 +23,7 @@
 ```text
 PUBLIC_PANEL_MODE=true
 PUBLIC_EMPRESA_SLUG=equipe-norte
-PUBLIC_SHOW_AUTOMATIONS=false
+PUBLIC_SHOW_AUTOMATIONS=true
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -53,8 +53,10 @@ Cada importacao cria um registro em `public.painel_bases`. Quando uma nova base 
 1. `GET /api/health` deve retornar `{"ok": true}`.
 2. `GET /api/templates` deve listar os modelos.
 3. `GET /api/dashboard` sem base deve retornar estado vazio controlado.
-4. `POST /api/importacao` deve aceitar upload sem `Authorization`.
-5. `GET /api/dashboard` apos Painel clientes + Bussola deve calcular com dados reais.
+4. `GET /api/importacao` deve retornar apenas status/metadados pequenos.
+5. `POST /api/importacao` deve aceitar upload sem `Authorization`.
+6. `GET /api/produtos-mix` apos Produtos / Mix deve mostrar produtos e EANs.
+7. `GET /api/dashboard` apos Painel clientes + Bussola deve calcular com dados reais.
 
 ## Modelos
 
@@ -62,13 +64,27 @@ Os modelos ficam em `painelgerencialnorte/public/modelos/` e sao arquivos `.xlsx
 
 ## Automacoes
 
-As automacoes de Bussola e Mercado Farma ficam ocultas por padrao com:
+As automacoes de Bussola e Mercado Farma ficam visiveis no painel publico para permitir salvar credenciais GD e disparar as extracoes. Configure `GITHUB_REPO`, `GITHUB_TOKEN`, `PERSISTENCE_KEY` e os secrets necessarios nos workflows. As credenciais salvas pelo painel ficam criptografadas com `PERSISTENCE_KEY`.
+
+Produtos / Mix e a unica fonte de EANs para o Mercado Farma. Importe `Painel clientes` para listar UFs/clientes ativos e `Produtos / Mix` para habilitar `EANs na lista`.
+
+Secrets esperados no GitHub Actions:
 
 ```text
-PUBLIC_SHOW_AUTOMATIONS=false
+PERSISTENCE_KEY
+SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_EMPRESA_ID
+SUPABASE_EMPRESA_SLUG
+BUSSOLA_LOGIN_JSON
+BUSSOLA_GD_USUARIO
+BUSSOLA_GD_SENHA
+MERCADOFARMA_USUARIO
+MERCADOFARMA_SENHA
 ```
 
-Se forem habilitadas, configure `GITHUB_REPO`, `GITHUB_TOKEN`, `PERSISTENCE_KEY` e os secrets necessarios nos workflows. As credenciais salvas pelo painel ficam criptografadas com `PERSISTENCE_KEY`.
+Se as credenciais forem salvas pelo painel, `BUSSOLA_*` e `MERCADOFARMA_*` ficam como fallback.
 
 ## Seguranca
 

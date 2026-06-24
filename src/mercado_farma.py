@@ -537,14 +537,14 @@ def excel_mercado_farma_por_uf(df: pd.DataFrame, *, incluir_consultor: bool = Fa
     return buffer.getvalue()
 
 
-def obter_eans_para_consulta(produtos_mercado_farma: pd.DataFrame) -> list[str]:
-    if produtos_mercado_farma is None or produtos_mercado_farma.empty:
+def obter_eans_para_consulta(produtos_mix: pd.DataFrame) -> list[str]:
+    if produtos_mix is None or produtos_mix.empty:
         return []
-    base = padronizar_colunas(produtos_mercado_farma.copy())
+    base = padronizar_colunas(produtos_mix.copy())
     coluna = "ean_limpo" if "ean_limpo" in base.columns else "ean" if "ean" in base.columns else base.columns[0]
     valores = base[coluna].dropna().astype(str).map(normalizar_ean)
-    valores = valores[valores.ne("")]
-    return sorted(valores.unique().tolist())
+    tamanhos_validos = {8, 12, 13, 14}
+    return sorted({ean for ean in valores.tolist() if len(ean) in tamanhos_validos})
 
 
 def ufs_por_consultor(clientes: pd.DataFrame) -> dict[str, list[dict[str, str]]]:
@@ -769,17 +769,17 @@ def converter_linhas_extrator(linhas: list[dict], consultor: str, uf: str, cnpj:
 def extrair_mercado_farma(
     credenciais: list[dict[str, str]],
     clientes: pd.DataFrame,
-    produtos_mercado_farma: pd.DataFrame,
+    produtos_mix: pd.DataFrame,
     *,
     headless: bool = True,
     limite_eans: int | None = None,
     log_fn: Callable[[str], None] | None = None,
 ) -> Path:
-    eans = obter_eans_para_consulta(produtos_mercado_farma)
+    eans = obter_eans_para_consulta(produtos_mix)
     if limite_eans:
         eans = eans[: int(limite_eans)]
     if not eans:
-        raise RuntimeError("Não encontrei EANs na planilha produtos.xlsx para consultar o Mercado Farma.")
+        raise RuntimeError("Importe Produtos / Mix para gerar lista de EANs.")
 
     usuario_gd, senha_gd = _credenciais_gd_da_lista(credenciais)
     if not usuario_gd or not senha_gd:
@@ -948,7 +948,7 @@ def _extrair_alvo(
 def iniciar_extracao_background(
     credenciais: list[dict[str, str]],
     clientes: pd.DataFrame,
-    produtos_mercado_farma: pd.DataFrame,
+    produtos_mix: pd.DataFrame,
     *,
     headless: bool = True,
     limite_eans: int | None = None,
@@ -959,7 +959,7 @@ def iniciar_extracao_background(
     if atual.get("status") == "rodando" and atual.get("thread_alive"):
         return atual
 
-    eans = obter_eans_para_consulta(produtos_mercado_farma)
+    eans = obter_eans_para_consulta(produtos_mix)
     if limite_eans:
         eans = eans[: int(limite_eans)]
     usuario_gd, senha_gd = _credenciais_gd_da_lista(credenciais)
@@ -972,7 +972,7 @@ def iniciar_extracao_background(
         ufs_set = {str(uf).strip().upper() for uf in ufs if str(uf).strip()}
         alvos = [alvo for alvo in alvos if str(alvo.get("uf", "")).upper() in ufs_set]
     if not eans:
-        raise RuntimeError("A planilha produtos.xlsx não tem EANs válidos.")
+        raise RuntimeError("Importe Produtos / Mix para gerar lista de EANs.")
     if not alvos:
         raise RuntimeError("Não encontrei UF válida com CNPJ referência ativo.")
 

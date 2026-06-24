@@ -84,6 +84,9 @@ jobs:
           if [ -n "$BUSSOLA_GD_SENHA" ]; then
             echo "::add-mask::$BUSSOLA_GD_SENHA"
           fi
+          if [ -n "$BUSSOLA_LOGIN_JSON" ]; then
+            echo "::add-mask::$BUSSOLA_LOGIN_JSON"
+          fi
           EXTRA_ARGS=""
           if [ "${{ inputs.headless }}" = "true" ]; then
             EXTRA_ARGS="--headless"

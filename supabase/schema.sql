@@ -22,7 +22,7 @@ create table if not exists public.core_usuarios (
 create table if not exists public.painel_bases (
   id uuid primary key default gen_random_uuid(),
   empresa_id uuid not null references public.core_empresas(id) on delete cascade,
-  tipo_base text not null check (tipo_base in ('bussola', 'painel', 'produtos_mix', 'acoes', 'mercado_farma', 'produtos_mercado_farma', 'bussola_historico')),
+  tipo_base text not null check (tipo_base in ('bussola', 'painel', 'produtos_mix', 'acoes', 'mercado_farma', 'bussola_historico')),
   nome_arquivo text not null,
   storage_path text not null,
   linhas integer not null default 0,

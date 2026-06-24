@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiPath } from "@/lib/api";
-import { createClient } from "@/lib/supabase/client";
 
 type RunSummary = {
   id: string;
@@ -105,18 +104,12 @@ export function AutomationImportPanel() {
   const availableUfs = useMemo(() => mercadoStatus.available_ufs ?? [], [mercadoStatus.available_ufs]);
 
   const authToken = useCallback(async () => {
-    const supabase = createClient();
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token ?? "";
+    return "";
   }, []);
 
   const refreshStatus = useCallback(async () => {
     const token = await authToken();
-    if (!token) {
-      setState({ loading: false, message: "Entre no painel para usar as automacoes.", tone: "error" });
-      return;
-    }
-    const headers = { Authorization: `Bearer ${token}` };
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
     const [mercadoResponse, bussolaResponse, credentialsResponse] = await Promise.all([
       fetch(apiPath("/automacoes/mercado-farma"), { cache: "no-store", headers }),
       fetch(apiPath("/automacoes/bussola"), { cache: "no-store", headers }),
@@ -152,14 +145,14 @@ export function AutomationImportPanel() {
   async function postAutomation(path: string, body: Record<string, unknown>, loadingMessage: string) {
     setState({ loading: true, message: loadingMessage, tone: "muted" });
     const token = await authToken();
-    if (!token) {
-      setState({ loading: false, message: "Entre no painel antes de disparar automacoes.", tone: "error" });
-      return;
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
     }
     try {
       const response = await fetch(apiPath(path), {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(body),
       });
       const payload = (await response.json().catch(() => ({}))) as { message?: string };

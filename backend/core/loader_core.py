@@ -22,6 +22,7 @@ from .tratamento import (
     preparar_base_vendas,
     preparar_painel_equipe,
     preparar_produtos_mix,
+    renomear_alias,
     validar_colunas_esperadas,
 )
 
@@ -163,35 +164,36 @@ def validar_upload_generico(chave: str, conteudo: bytes, nome_arquivo: str | Non
 
     base = padronizar_colunas(bruto)
     if chave in {"bussola", "bussola_historico"}:
-        minimas = ["cnpj_pdv", "ean", "produto", "status_pedido", "pedido_id", "data_do_pedido", "preco_unitario_sem_imposto", "valor_faturado"]
+        aliases = {
+            "cnpj_pdv": ["CNPJ PDV", "CNPJ", "CNPJ CLIENTE"],
+            "ean": ["EAN", "CODIGO DE BARRAS", "COD BARRAS"],
+            "produto": ["PRODUTO", "DESCRICAO", "NOME PRODUTO"],
+            "quantidade_solicitada": ["QUANTIDADE SOLICITADA", "QTD SOLICITADA", "QTD"],
+            "quantidade_atendida": ["QUANTIDADE ATENDIDA", "QTD ATENDIDA"],
+            "quantidade_faturada": ["QUANTIDADE FATURADA", "QTD FATURADA"],
+        }
+        for destino, nomes in aliases.items():
+            base = renomear_alias(base, destino, nomes)
+        minimas = ["cnpj_pdv", "ean", "produto"]
         faltantes = [coluna for coluna in minimas if coluna not in base.columns]
         if faltantes:
-            return False, "A base Bussola precisa conter: " + ", ".join(minimas)
-        if "quantidade_atendida" not in base.columns and "quantidade_faturada" not in base.columns:
-            return False, "A base Bussola precisa conter quantidade_atendida ou quantidade_faturada."
+            return False, "A base Bussola precisa conter ao menos CNPJ PDV, EAN e Produto."
+        if not any(coluna in base.columns for coluna in ["quantidade_solicitada", "quantidade_atendida", "quantidade_faturada"]):
+            return False, "A base Bussola precisa conter quantidade_solicitada, quantidade_atendida ou quantidade_faturada."
     elif chave == "painel":
-        checks = {
-            "CNPJ": ["cnpj"],
-            "Nome PDV": ["nome_pdv", "cliente", "razao_social", "nome"],
-            "Cidade": ["cidade"],
-            "UF": ["uf"],
-            "Nome REP ou Consultor": ["nome_rep", "consultor", "representante"],
-        }
-        for nome, aliases in checks.items():
-            if not any(alias in base.columns for alias in aliases):
-                return False, f"A base de clientes precisa conter {nome}."
+        tratado = preparar_painel_equipe(bruto)
+        cnpjs_validos = int(tratado["cnpj_limpo"].dropna().astype(str).str.strip().ne("").sum()) if "cnpj_limpo" in tratado else 0
+        if cnpjs_validos <= 0:
+            return False, "A base de clientes precisa conter CNPJ valido."
     elif chave == "produtos_mix":
-        if "ean" not in base.columns:
-            return False, "A coluna EAN nao foi encontrada."
-        if not any(coluna in base.columns for coluna in ["produto", "principio_ativo", "nome_do_produto", "descricao"]):
-            return False, "A coluna Produto nao foi encontrada."
-        if not any(coluna in base.columns for coluna in ["tipo_mix", "tipo", "mix", "classificacao", "categoria"]):
-            return False, "A coluna Tipo Mix nao foi encontrada."
         tratado = preparar_produtos_mix(bruto)
         eans_validos = int(tratado["ean_limpo"].dropna().astype(str).str.strip().ne("").sum()) if "ean_limpo" in tratado else 0
+        produtos_validos = int(tratado["produto"].dropna().astype(str).str.strip().ne("").sum()) if "produto" in tratado else 0
         classificados = tratado[tratado["tipo_mix"].ne(TIPO_SEM_CLASSIFICACAO)] if "tipo_mix" in tratado else pd.DataFrame()
-        if eans_validos < 10:
-            return False, "A planilha precisa ter pelo menos 10 EANs validos."
+        if eans_validos <= 0:
+            return False, "A coluna EAN nao foi encontrada ou nao possui valores validos."
+        if produtos_validos <= 0:
+            return False, "A coluna Produto nao foi encontrada ou esta vazia."
         if classificados.empty:
             return False, "Todos os produtos ficaram SEM CLASSIFICACAO."
     elif chave == "produtos_mercado_farma":

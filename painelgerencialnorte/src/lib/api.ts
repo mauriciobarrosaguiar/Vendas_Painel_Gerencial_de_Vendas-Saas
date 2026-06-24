@@ -143,7 +143,7 @@ export async function getDashboardSnapshot(token?: string): Promise<DashboardSna
       return {
         ...EMPTY_SNAPSHOT,
         apiConnected: response.status !== 500,
-        message: response.status === 401 ? "Entre para carregar os dados da empresa." : "Falha ao carregar dados. Verifique configuracao da API/Supabase.",
+        message: "Falha ao carregar dados. Verifique configuracao da API/Supabase.",
       };
     }
     const payload = (await response.json()) as DashboardApiResponse;

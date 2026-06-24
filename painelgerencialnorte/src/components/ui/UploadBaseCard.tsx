@@ -14,18 +14,42 @@ type UploadState = {
   loading: boolean;
   message: string;
   tone: "muted" | "ok" | "error";
+  details?: {
+    nomeArquivo?: string;
+    linhas?: number;
+    colunas?: number;
+    createdAt?: string | null;
+  };
 };
 
-type ImportResponse = {
+type UploadResponse = {
   message?: string;
   detail?: string;
+  nome_arquivo?: string;
+  linhas?: number;
+  colunas?: number;
+  created_at?: string | null;
   base?: {
     nome_arquivo?: string;
     linhas?: number;
     colunas?: number;
-    created_at?: string;
+    created_at?: string | null;
   } | null;
 };
+
+function formatDateTime(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
 
 export function UploadBaseCard({ title, description, typeBase, modelUrl }: UploadBaseCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -53,15 +77,21 @@ export function UploadBaseCard({ title, description, typeBase, modelUrl }: Uploa
         method: "POST",
         body: formData,
       });
-      const payload = (await response.json().catch(() => ({}))) as ImportResponse;
+      const payload = (await response.json().catch(() => ({}))) as UploadResponse;
       if (!response.ok) {
         throw new Error(payload.detail || payload.message || "Falha ao importar arquivo.");
       }
-      const base = payload.base;
-      const detalhes = base
-        ? `${base.nome_arquivo || file.name} importado. Linhas: ${base.linhas ?? "-"}. Colunas: ${base.colunas ?? "-"}.`
-        : payload.message || "Base importada com sucesso.";
-      setState({ loading: false, message: detalhes, tone: "ok" });
+      setState({
+        loading: false,
+        message: payload.message || "Base importada com sucesso.",
+        tone: "ok",
+        details: {
+          nomeArquivo: payload.nome_arquivo || payload.base?.nome_arquivo || file.name,
+          linhas: payload.linhas ?? payload.base?.linhas,
+          colunas: payload.colunas ?? payload.base?.colunas,
+          createdAt: payload.created_at ?? payload.base?.created_at,
+        },
+      });
       if (inputRef.current) {
         inputRef.current.value = "";
       }
@@ -114,6 +144,26 @@ export function UploadBaseCard({ title, description, typeBase, modelUrl }: Uploa
           {state.loading ? "Importando..." : "Importar"}
         </button>
         <p className={`text-sm ${toneClass}`}>{state.message}</p>
+        {state.details ? (
+          <dl className="grid gap-1 text-xs text-[#60786c]">
+            <div className="flex justify-between gap-3">
+              <dt>Arquivo</dt>
+              <dd className="text-right font-medium text-[#355242]">{state.details.nomeArquivo || "-"}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>Linhas</dt>
+              <dd className="font-medium text-[#355242]">{state.details.linhas ?? "-"}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>Colunas</dt>
+              <dd className="font-medium text-[#355242]">{state.details.colunas ?? "-"}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt>Data/hora</dt>
+              <dd className="text-right font-medium text-[#355242]">{formatDateTime(state.details.createdAt) || "-"}</dd>
+            </div>
+          </dl>
+        ) : null}
       </div>
     </section>
   );

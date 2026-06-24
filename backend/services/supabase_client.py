@@ -26,7 +26,21 @@ _client: Any | None = None
 
 
 def _env(name: str) -> str:
-    return os.getenv(name, "").strip()
+    value = os.getenv(name, "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1].strip()
+    return value
+
+
+def public_panel_mode() -> bool:
+    value = _env("PUBLIC_PANEL_MODE")
+    if not value:
+        return True
+    return value.lower() not in {"0", "false", "no", "nao", "não", "off"}
+
+
+def public_empresa_slug() -> str:
+    return _env("PUBLIC_EMPRESA_SLUG") or "equipe-norte"
 
 
 def get_supabase_url() -> str:
@@ -86,14 +100,17 @@ def _auth_user_id(user_response: Any) -> tuple[str | None, str]:
     return getattr(user, "id", None), str(getattr(user, "email", "") or "")
 
 
-def get_default_empresa_id() -> str | None:
+def get_default_empresa_id(slug: str | None = None) -> str | None:
     client = get_supabase_client()
-    slug = _env("PUBLIC_EMPRESA_SLUG") or "equipe-norte"
-    response = client.table("core_empresas").select("id").eq("slug", slug).eq("ativo", True).limit(1).execute()
-    row = _first(response)
-    if row and row.get("id"):
-        return str(row["id"])
-
+    slug = (slug or public_empresa_slug()).strip()
+    if slug:
+        try:
+            response = client.table("core_empresas").select("id").eq("slug", slug).eq("ativo", True).limit(1).execute()
+            row = _first(response)
+            if row and row.get("id"):
+                return str(row["id"])
+        except Exception:
+            pass
     response = client.table("core_empresas").select("id").eq("ativo", True).limit(1).execute()
     row = _first(response)
     return str(row["id"]) if row and row.get("id") else None
@@ -107,25 +124,28 @@ def resolve_user_context(
 ) -> UserContext | None:
     token = bearer_token(authorization)
     if not token:
-        empresa_id = empresa_id_override or get_default_empresa_id()
-        if not empresa_id:
-            if required:
-                raise PermissionError("Empresa padrao nao encontrada.")
-            return None
-
-        return UserContext(
-            user_id=None,
-            email="publico@painel.local",
-            papel="admin_master",
-            empresa_id=empresa_id,
-            nome="Acesso Publico",
-        )
+        if public_panel_mode():
+            empresa_id = empresa_id_override or get_default_empresa_id(public_empresa_slug())
+            if not empresa_id:
+                if required:
+                    raise PermissionError("Empresa padrao nao encontrada.")
+                return None
+            return UserContext(
+                user_id=None,
+                email="publico@painel.local",
+                papel="admin_master",
+                empresa_id=empresa_id,
+                nome="Acesso Publico",
+            )
+        if required:
+            raise PermissionError("Acesso nao autorizado para esta operacao.")
+        return None
 
     client = get_supabase_client()
     auth_response = client.auth.get_user(token)
     user_id, email = _auth_user_id(auth_response)
     if not user_id:
-        raise PermissionError("Token de sessao invalido.")
+        raise PermissionError("Token invalido.")
 
     response = (
         client.table("core_usuarios")

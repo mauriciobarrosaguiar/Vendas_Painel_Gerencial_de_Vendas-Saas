@@ -7,7 +7,10 @@ export function Topbar() {
           <h1 className="text-xl font-semibold text-foreground">Equipe Norte</h1>
         </div>
         <div className="flex items-center gap-2 text-sm">
-          <span className="rounded-md border border-border bg-surface px-3 py-2 text-[#466155]">Painel publico</span>
+          <span className="rounded-md border border-border bg-surface px-3 py-2 text-[#466155]">Periodo ativo: configuravel</span>
+          <span className="rounded-md border border-[#b6d7c3] bg-[#edf8f1] px-3 py-2 font-semibold text-primary">
+            Painel público
+          </span>
         </div>
       </div>
     </header>

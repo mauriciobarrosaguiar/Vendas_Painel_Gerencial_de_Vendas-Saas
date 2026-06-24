@@ -1,3 +1,0 @@
-cnpj,nome_pdv,cidade,uf,situacao,grupo_economico,rede_associacao,bandeira,nome_gd,nome_rep,setor_rep,foco_pex,positivacao,proprietario_diretor,comprador_gerente_de_compras,cargo,celular,email
-00000000000100,Farmacia Exemplo 1,Palmas,TO,ATIVO,Grupo Exemplo,Rede Exemplo,Bandeira Exemplo,GD Exemplo,Consultor Exemplo,SETOR01,SIM,SIM,Diretor Exemplo,Comprador Exemplo,Gerente,63999990000,exemplo1@email.com
-00000000000200,Farmacia Exemplo 2,Gurupi,TO,ATIVO,Grupo Exemplo,Rede Exemplo,Bandeira Exemplo,GD Exemplo,Consultor Exemplo,SETOR01,SIM,NAO,Diretor Exemplo,Comprador Exemplo,Comprador,63999990001,exemplo2@email.com

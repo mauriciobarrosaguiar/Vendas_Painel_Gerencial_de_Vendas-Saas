@@ -339,13 +339,25 @@ def _grupo_sip_linha(linha: pd.Series) -> str:
     return "SEM IDENTIFICACAO"
 
 
+def _extrair_uf_cidade_utc(valor: object) -> tuple[str, str]:
+    texto = normalizar_texto(valor)
+    if not texto:
+        return "", ""
+    match = re.search(r"\b([A-Za-z]{2})\s*/\s*([^/-]+)", texto)
+    if not match:
+        return "", ""
+    uf = match.group(1).upper()
+    cidade = re.split(r"\s+-\s+", match.group(2).strip(), maxsplit=1)[0].strip()
+    return uf, cidade
+
+
 def preparar_painel_equipe(df: pd.DataFrame) -> pd.DataFrame:
     base = padronizar_colunas(df) if df is not None else pd.DataFrame()
     aliases = {
-        "cnpj": ["CNPJ"],
-        "nome_pdv": ["NOME PDV", "NOME FANTASIA", "RAZAO SOCIAL"],
-        "cidade": ["CIDADE"],
-        "uf": ["UF"],
+        "cnpj": ["CNPJ", "CNPJ PDV", "CNPJ_PDV"],
+        "nome_pdv": ["NOME PDV", "NOME FANTASIA", "RAZAO SOCIAL", "RAZAO SOCIAL PDV", "CLIENTE", "PDV", "FARMACIA", "NOME CLIENTE"],
+        "cidade": ["CIDADE", "MUNICIPIO"],
+        "uf": ["UF", "ESTADO"],
         "situacao": ["SITUAÇÃO", "SITUACAO"],
         "grupo_economico": ["GRUPO ECONÔMICO", "GRUPO ECONOMICO"],
         "rede_associacao": ["REDE ASSOCIAÇÃO", "REDE ASSOCIACAO", "REDE\nASSOCIAÇÃO"],
@@ -361,14 +373,77 @@ def preparar_painel_equipe(df: pd.DataFrame) -> pd.DataFrame:
         "celular": ["CELULAR", "TELEFONE", "CONTATO"],
         "email": ["EMAIL", "E-MAIL"],
     }
+    aliases.update(
+        {
+            "cnpj": ["CNPJ", "CNPJ PDV", "CNPJ_PDV"],
+            "nome_pdv": [
+                "NOME PDV",
+                "NOME FANTASIA",
+                "RAZAO SOCIAL",
+                "RAZAO SOCIAL PDV",
+                "CLIENTE",
+                "PDV",
+                "FARMACIA",
+                "NOME CLIENTE",
+            ],
+            "cidade": ["CIDADE", "MUNICIPIO"],
+            "uf": ["UF", "ESTADO"],
+            "situacao": ["SITUACAO", "SITUAÇÃO", "STATUS", "STATUS CLIENTE"],
+            "grupo_economico": ["GRUPO ECONOMICO", "GRUPO ECONÔMICO", "SUBCANAL CUP", "SUBCANAL", "CANAL CUP", "BU"],
+            "rede_associacao": [
+                "REDE ASSOCIACAO",
+                "REDE ASSOCIAÇÃO",
+                "ASSOCIACAO",
+                "ASSOCIAÇÃO",
+                "CANAL CUP",
+                "SUBCANAL CUP",
+                "SUBCANAL",
+            ],
+            "bandeira": ["BANDEIRA"],
+            "nome_gd": ["NOME GD", "NOME GD.1", "GD", "GERENTE DISTRITAL"],
+            "nome_rep": [
+                "NOME REP",
+                "NOME CONSULTOR TERRIT.",
+                "NOME CONSULTOR TERRIT",
+                "REPRESENTANTE",
+                "CONSULTOR",
+                "CONSULTOR TERRITORIAL",
+                "NOME CONSULTOR",
+            ],
+            "setor_rep": [
+                "SETOR REP",
+                "SETOR CONSULTOR TERRIT.",
+                "SETOR CONSULTOR TERRIT",
+                "SETOR",
+                "COD CLIENTE SISO",
+                "CODIGO CLIENTE SISO",
+                "CÓD CLIENTE SISO",
+            ],
+        }
+    )
     for destino, nomes in aliases.items():
         base = renomear_alias(base, destino, nomes)
     base = garantir_colunas(base, COLUNAS_PAINEL + COLUNAS_CONTATO)
+
+    if "utc" in base.columns:
+        extraidos = base["utc"].apply(_extrair_uf_cidade_utc)
+        uf_extraida = extraidos.apply(lambda item: item[0])
+        cidade_extraida = extraidos.apply(lambda item: item[1])
+        uf_invalida = base["uf"].apply(lambda valor: not re.fullmatch(r"[A-Za-z]{2}", normalizar_texto(valor)))
+        base.loc[(base["uf"].apply(_texto_vazio) | uf_invalida) & uf_extraida.ne(""), "uf"] = uf_extraida
+        base.loc[base["cidade"].apply(_texto_vazio), "cidade"] = cidade_extraida
 
     base["cnpj_limpo"] = base["cnpj"].apply(normalizar_cnpj)
     base["cnpj"] = base["cnpj_limpo"]
     for coluna in COLUNAS_PAINEL[1:] + COLUNAS_CONTATO:
         base[coluna] = base[coluna].apply(normalizar_texto)
+    uf_valida = base["uf"].apply(lambda valor: bool(re.fullmatch(r"[A-Za-z]{2}", normalizar_texto(valor))))
+    base.loc[~uf_valida, "uf"] = ""
+    base["uf"] = base["uf"].str.upper()
+    base.loc[base["situacao"].apply(_texto_vazio) & base["cnpj_limpo"].ne(""), "situacao"] = "ATIVO"
+    for fallback in ["bandeira", "grupo_economico", "rede_associacao"]:
+        base["nome_pdv"] = base["nome_pdv"].where(base["nome_pdv"].ne(""), base[fallback])
+    base.loc[base["nome_pdv"].eq("") & base["cnpj_limpo"].ne(""), "nome_pdv"] = "CLIENTE " + base["cnpj_limpo"]
 
     base["grupo_sip"] = base.apply(_grupo_sip_linha, axis=1)
     situacao = base["situacao"].apply(normalizar_texto_alto)
@@ -396,6 +471,24 @@ def preparar_produtos_mix(df: pd.DataFrame) -> pd.DataFrame:
             "LINHA COMBATE PRIORITARIOS LANCAMENTOS",
         ],
     }
+    aliases.update(
+        {
+            "ean": ["EAN", "CODIGO DE BARRAS", "CÓDIGO DE BARRAS", "COD BARRAS", "CODIGO_BARRAS", "CODIGO EAN"],
+            "produto": ["PRODUTO", "PRINCIPIO ATIVO", "NOME DO PRODUTO", "NOME PRODUTO", "DESCRICAO", "DESCRIÇÃO"],
+            "tipo_mix": [
+                "TIPO MIX",
+                "TIPO",
+                "TIPO_MIX",
+                "MIX",
+                "CLASSIFICACAO",
+                "CLASSIFICAÇÃO",
+                "CATEGORIA",
+                "MIX LANCAMENTOS",
+                "LINHA/COMBATE/PRIORITARIOS/LANCAMENTOS",
+                "LINHA COMBATE PRIORITARIOS LANCAMENTOS",
+            ],
+        }
+    )
     for destino, nomes in aliases.items():
         base = renomear_alias(base, destino, nomes)
     base = garantir_colunas(base, COLUNAS_PRODUTOS_MIX)
@@ -460,6 +553,25 @@ def preparar_base_vendas(
     produtos_mix: pd.DataFrame,
 ) -> pd.DataFrame:
     vendas = padronizar_colunas(bussola) if bussola is not None else pd.DataFrame()
+    aliases_vendas = {
+        "status_pedido": ["STATUS", "STATUS PEDIDO", "STATUS DO PEDIDO"],
+        "nota_fiscal": ["NF", "NOTA", "NOTA FISCAL"],
+        "pedido_id": ["PEDIDO", "ID PEDIDO", "PEDIDO ID", "NUMERO PEDIDO", "NUMERO DO PEDIDO"],
+        "data_do_pedido": ["DATA PEDIDO", "DATA DO PEDIDO", "DT PEDIDO"],
+        "data_de_faturamento": ["DATA FATURAMENTO", "DATA DE FATURAMENTO", "DT FATURAMENTO"],
+        "canal_de_vendas": ["CANAL", "CANAL DE VENDAS"],
+        "cod_representante": ["COD REPRESENTANTE", "CODIGO REPRESENTANTE"],
+        "representante": ["REPRESENTANTE", "CONSULTOR", "NOME REP"],
+        "cnpj_pdv": ["CNPJ PDV", "CNPJ", "CNPJ CLIENTE"],
+        "centro_distribuicao": ["CENTRO DISTRIBUICAO", "CENTRO DE DISTRIBUICAO", "DISTRIBUIDORA"],
+        "uf_centro_distribuicao": ["UF CENTRO DISTRIBUICAO", "UF CD", "UF"],
+        "ean": ["EAN", "CODIGO DE BARRAS", "COD BARRAS"],
+        "sku_produto": ["SKU", "SKU PRODUTO", "COD PRODUTO", "CODIGO PRODUTO"],
+        "produto": ["PRODUTO", "DESCRICAO", "NOME PRODUTO"],
+        "valor_faturado": ["VALOR FATURADO", "TOTAL FATURADO", "VALOR TOTAL FATURADO"],
+    }
+    for destino, nomes in aliases_vendas.items():
+        vendas = renomear_alias(vendas, destino, nomes)
     vendas = garantir_colunas(vendas, COLUNAS_BUSSOLA)
     if vendas.empty:
         return pd.DataFrame(

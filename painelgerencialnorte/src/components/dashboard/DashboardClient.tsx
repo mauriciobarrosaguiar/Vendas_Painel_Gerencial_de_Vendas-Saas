@@ -7,7 +7,6 @@ import { MetricCard } from "@/components/ui/MetricCard";
 import { ProjectionBadge } from "@/components/ui/ProjectionBadge";
 import { StatusPeriodo } from "@/components/ui/StatusPeriodo";
 import { getApiHealth, getDashboardSnapshot } from "@/lib/api";
-import { createClient } from "@/lib/supabase/client";
 import type { DashboardSnapshot } from "@/lib/types";
 
 type LoadState = {
@@ -22,10 +21,7 @@ export function DashboardClient() {
     let active = true;
 
     async function load() {
-      const supabase = createClient();
-      const [{ data }, apiConnected] = await Promise.all([supabase.auth.getSession(), getApiHealth()]);
-      const token = data.session?.access_token;
-      const snapshot = await getDashboardSnapshot(token);
+      const [apiConnected, snapshot] = await Promise.all([getApiHealth(), getDashboardSnapshot()]);
       if (active) {
         setState({
           loading: false,

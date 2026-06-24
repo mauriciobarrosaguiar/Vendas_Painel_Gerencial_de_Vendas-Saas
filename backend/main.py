@@ -294,6 +294,22 @@ def _raw_from_files(files: dict[str, tuple[bytes, str]]) -> BasesRaw:
     )
 
 
+def _active_company_files(
+    authorization: str | None,
+    x_empresa_id: str | None,
+) -> tuple[list[dict[str, Any]], dict[str, tuple[bytes, str]]]:
+    context = resolve_user_context(authorization, required=False, empresa_id_override=x_empresa_id)
+    client = get_supabase_client()
+    empresa_id = context.empresa_id if context else None
+    if context and context.is_admin_master and not empresa_id:
+        empresa_id = get_default_empresa_id()
+    if not empresa_id:
+        return _base_statuses([]), {}
+
+    rows = _active_base_rows(client, empresa_id)
+    return _base_statuses(rows), _download_active_files(client, rows)
+
+
 def _ensure_storage_bucket(client: Any) -> None:
     try:
         client.storage.get_bucket(BUCKET_NAME)
@@ -468,20 +484,10 @@ def dashboard(
         )
 
     try:
-        context = resolve_user_context(authorization, required=False, empresa_id_override=x_empresa_id)
-        client = get_supabase_client()
-        empresa_id = context.empresa_id if context else None
-        if context is None:
-            return _empty_dashboard(supabase_connected=True)
-        if context.is_admin_master and not empresa_id:
-            empresa_id = get_default_empresa_id()
-
-        rows = _active_base_rows(client, empresa_id)
-        bases = _base_statuses(rows)
-        if not rows:
+        bases, files = _active_company_files(authorization, x_empresa_id)
+        if not files:
             return _empty_dashboard(supabase_connected=True, bases=bases)
 
-        files = _download_active_files(client, rows)
         if "bussola" not in files or "painel" not in files:
             return _empty_dashboard(
                 message="Nenhuma base importada ainda",
@@ -694,32 +700,65 @@ def automacao_bussola_disparar(
 
 
 @app.get("/consultores")
-def consultores() -> Any:
+@app.get("/api/consultores", include_in_schema=False)
+def consultores(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> Any:
+    if not is_supabase_configured():
+        return _empty_dashboard(message="Supabase nao configurado. Verifique as variaveis de ambiente.")
     try:
-        dados = _load_local_data()
+        bases, files = _active_company_files(authorization, x_empresa_id)
+        if "bussola" not in files or "painel" not in files:
+            return {"ok": True, "available": False, "message": "Nenhuma base importada ainda", "consultores": [], "bases": bases}
+        dados = tratar_bases(_raw_from_files(files))
         resultado = gerar_resultado_consultor(dados["vendas"], dados["clientes"])
-        return {"ok": True, "available": True, "consultores": _records(resultado)}
+        return {"ok": True, "available": True, "consultores": _records(resultado), "bases": bases}
+    except PermissionError as exc:
+        raise _auth_error(exc) from exc
     except Exception as exc:
         return _unavailable(exc)
 
 
 @app.get("/clientes")
-def clientes() -> Any:
+@app.get("/api/clientes", include_in_schema=False)
+def clientes(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> Any:
+    if not is_supabase_configured():
+        return _empty_dashboard(message="Supabase nao configurado. Verifique as variaveis de ambiente.")
     try:
-        dados = _load_local_data()
+        bases, files = _active_company_files(authorization, x_empresa_id)
+        if "bussola" not in files or "painel" not in files:
+            return {"ok": True, "available": False, "message": "Nenhuma base importada ainda", "clientes": [], "bases": bases}
+        dados = tratar_bases(_raw_from_files(files))
         resultado = gerar_resultado_cliente(dados["vendas"], dados["clientes"])
-        return {"ok": True, "available": True, "clientes": _records(resultado)}
+        return {"ok": True, "available": True, "clientes": _records(resultado), "bases": bases}
+    except PermissionError as exc:
+        raise _auth_error(exc) from exc
     except Exception as exc:
         return _unavailable(exc)
 
 
 @app.get("/mercado-farma")
-def mercado_farma() -> Any:
+@app.get("/api/mercado-farma", include_in_schema=False)
+def mercado_farma(
+    authorization: str | None = Header(default=None),
+    x_empresa_id: str | None = Header(default=None),
+) -> Any:
+    if not is_supabase_configured():
+        return _empty_dashboard(message="Supabase nao configurado. Verifique as variaveis de ambiente.")
     try:
-        dados = _load_local_data()
-        mercado = preparar_mercado_farma(dados["mercado_farma"])
+        bases, files = _active_company_files(authorization, x_empresa_id)
+        if "mercado_farma" not in files:
+            return {"ok": True, "available": False, "message": "Nenhuma base importada ainda", "melhores_precos": [], "bases": bases}
+        raw = _raw_from_files(files)
+        mercado = preparar_mercado_farma(raw.mercado_farma)
         melhores = melhor_preco_por_ean(mercado)
-        return {"ok": True, "available": True, "melhores_precos": _records(melhores)}
+        return {"ok": True, "available": True, "melhores_precos": _records(melhores), "bases": bases}
+    except PermissionError as exc:
+        raise _auth_error(exc) from exc
     except Exception as exc:
         return _unavailable(exc)
 
@@ -728,6 +767,16 @@ def mercado_farma() -> Any:
 @app.get("/api/templates", include_in_schema=False)
 def templates() -> dict[str, Any]:
     return {
+        "ok": True,
+        "modelos": [
+            {"modelo": "Bussola", "arquivo": "modelo_bussola.xlsx", "aba": "Pedidos", "download": "/modelos/modelo_bussola.xlsx"},
+            {"modelo": "Painel clientes", "arquivo": "modelo_painel_clientes.xlsx", "aba": "Planilha1", "download": "/modelos/modelo_painel_clientes.xlsx"},
+            {"modelo": "Produtos / Mix", "arquivo": "modelo_produtos_mix.xlsx", "aba": "Produtos", "download": "/modelos/modelo_produtos_mix.xlsx"},
+            {"modelo": "Acoes promocionais", "arquivo": "modelo_acoes_promocionais.xlsx", "aba": "Acoes", "download": "/modelos/modelo_acoes_promocionais.xlsx"},
+            {"modelo": "Mercado Farma", "arquivo": "modelo_mercado_farma.xlsx", "aba": "Mercado Farma", "download": "/modelos/modelo_mercado_farma.xlsx"},
+            {"modelo": "Produtos Mercado Farma", "arquivo": "modelo_produtos_mercado_farma.xlsx", "aba": "Produtos", "download": "/modelos/modelo_produtos_mercado_farma.xlsx"},
+            {"modelo": "Historico Bussola", "arquivo": "modelo_bussola_historico.xlsx", "aba": "Pedidos", "download": "/modelos/modelo_bussola_historico.xlsx"},
+        ],
         "templates": {
             "bussola": COLUNAS_BUSSOLA,
             "painel": COLUNAS_PAINEL,
@@ -800,10 +849,15 @@ async def importacao(
         .execute()
     )
 
+    base_row = insert_response.data[0] if isinstance(insert_response.data, list) and insert_response.data else None
     return {
         "ok": True,
         "message": "Base importada com sucesso.",
-        "base": insert_response.data[0] if isinstance(insert_response.data, list) and insert_response.data else None,
+        "nome_arquivo": filename,
+        "linhas": int(bruto.shape[0]),
+        "colunas": int(bruto.shape[1]),
+        "created_at": base_row.get("created_at") if isinstance(base_row, dict) else None,
+        "base": base_row,
     }
 
 

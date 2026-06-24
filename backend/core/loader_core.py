@@ -30,11 +30,18 @@ from .tratamento import (
 ABAS_PADRAO = {
     "bussola": "Pedidos",
     "painel": "Planilha1",
-    "acoes": 0,
-    "produtos_mix": 0,
-    "mercado_farma": 0,
-    "produtos_mercado_farma": 0,
+    "acoes": "Acoes",
+    "produtos_mix": "Produtos",
+    "mercado_farma": "Mercado Farma",
+    "produtos_mercado_farma": "Produtos",
     "bussola_historico": "Pedidos",
+}
+
+ABAS_ALTERNATIVAS = {
+    "acoes": ["Acoes", "Ações", "Campanhas", 0],
+    "produtos_mix": ["Produtos", "Produtos Mix", "Mix", "Classificacao", "Classificação", 0],
+    "mercado_farma": ["Mercado Farma", "MercadoFarma", "Precos", "Preços", 0],
+    "produtos_mercado_farma": ["Produtos", "EANs", "Produtos Mercado Farma", 0],
 }
 
 ARQUIVOS_PADRAO = {
@@ -84,6 +91,51 @@ def ler_excel_bytes(conteudo: bytes, sheet_name: str | int = 0) -> pd.DataFrame:
     return pd.read_excel(BytesIO(conteudo), sheet_name=sheet_name, dtype=str, engine="openpyxl")
 
 
+def _planilhas_excel(conteudo: bytes) -> list[str]:
+    if not conteudo:
+        return []
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(BytesIO(conteudo), read_only=True, data_only=True)
+        nomes = list(wb.sheetnames)
+        wb.close()
+        return nomes
+    except Exception:
+        return []
+
+
+def ler_excel_preferencial_bytes(conteudo: bytes, preferidas: list[str | int]) -> pd.DataFrame:
+    if not conteudo:
+        return pd.DataFrame()
+
+    planilhas = _planilhas_excel(conteudo)
+    tentativas: list[str | int] = []
+    for aba in preferidas:
+        if isinstance(aba, int):
+            tentativas.append(aba)
+        elif aba in planilhas:
+            tentativas.append(aba)
+
+    for aba in planilhas:
+        if aba not in tentativas:
+            tentativas.append(aba)
+
+    if not tentativas:
+        tentativas = [0]
+
+    ultimo_erro: Exception | None = None
+    for aba in tentativas:
+        try:
+            return ler_excel_bytes(conteudo, aba)
+        except ValueError as exc:
+            ultimo_erro = exc
+            continue
+    if ultimo_erro:
+        raise ultimo_erro
+    return pd.DataFrame()
+
+
 def ler_painel_bytes(conteudo: bytes) -> pd.DataFrame:
     if not conteudo:
         return pd.DataFrame()
@@ -130,7 +182,9 @@ def ler_base_bytes(chave: str, conteudo: bytes, nome_arquivo: str | None = None)
         return ler_csv_bytes(conteudo)
     if chave == "painel":
         return ler_painel_bytes(conteudo)
-    return ler_excel_bytes(conteudo, ABAS_PADRAO.get(chave, 0))
+    if chave in ABAS_ALTERNATIVAS:
+        return ler_excel_preferencial_bytes(conteudo, ABAS_ALTERNATIVAS[chave])
+    return ler_excel_preferencial_bytes(conteudo, [ABAS_PADRAO.get(chave, 0), 0])
 
 
 def carregar_bases_de_bytes(arquivos: Mapping[str, bytes]) -> BasesRaw:
@@ -160,7 +214,7 @@ def validar_upload_generico(chave: str, conteudo: bytes, nome_arquivo: str | Non
     except Exception as exc:
         return False, f"Nao consegui ler o arquivo enviado: {exc}"
     if bruto.empty:
-        return False, "O arquivo enviado esta vazio."
+        return False, "O arquivo enviado esta vazio. Confira se os dados estao na aba correta do modelo."
 
     base = padronizar_colunas(bruto)
     if chave in {"bussola", "bussola_historico"}:
@@ -191,11 +245,11 @@ def validar_upload_generico(chave: str, conteudo: bytes, nome_arquivo: str | Non
         produtos_validos = int(tratado["produto"].dropna().astype(str).str.strip().ne("").sum()) if "produto" in tratado else 0
         classificados = tratado[tratado["tipo_mix"].ne(TIPO_SEM_CLASSIFICACAO)] if "tipo_mix" in tratado else pd.DataFrame()
         if eans_validos <= 0:
-            return False, "A coluna EAN nao foi encontrada ou nao possui valores validos."
+            return False, "A coluna EAN nao foi encontrada ou nao possui valores validos na aba Produtos."
         if produtos_validos <= 0:
-            return False, "A coluna Produto nao foi encontrada ou esta vazia."
+            return False, "A coluna Produto nao foi encontrada ou esta vazia na aba Produtos."
         if classificados.empty:
-            return False, "Todos os produtos ficaram SEM CLASSIFICACAO."
+            return False, "Todos os produtos ficaram SEM CLASSIFICACAO. Preencha tipo_mix com PRIORITARIO, LANCAMENTO, LINHA ou COMBATE."
     elif chave == "produtos_mercado_farma":
         coluna = "ean" if "ean" in base.columns else base.columns[0] if len(base.columns) else ""
         eans = base[coluna].dropna().astype(str).map(normalizar_ean) if coluna else pd.Series(dtype=str)
@@ -272,4 +326,3 @@ def deduplicar_bussola_bytes(conteudo: bytes) -> bytes:
     with pd.ExcelWriter(saida, engine="openpyxl") as writer:
         deduplicado.to_excel(writer, sheet_name=ABAS_PADRAO["bussola"], index=False)
     return saida.getvalue()
-

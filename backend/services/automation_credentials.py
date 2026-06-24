@@ -23,6 +23,12 @@ def _env(name: str) -> str:
     return value
 
 
+def _safe_error(exc: Exception) -> str:
+    text = str(exc).strip() or exc.__class__.__name__
+    # Evita mensagens gigantes, mas mantém o suficiente para diagnosticar Vercel/Supabase.
+    return text[:800]
+
+
 def _fernet() -> Fernet:
     key = _env("PERSISTENCE_KEY")
     if not key:
@@ -72,22 +78,27 @@ def credential_tipo(tipo: str) -> str:
 
 
 def load_credentials(client: Any, empresa_id: str, tipo: str) -> dict[str, Any]:
-    response = (
-        client.table("painel_extracoes")
-        .select("resultado,created_at")
-        .eq("empresa_id", empresa_id)
-        .eq("tipo", credential_tipo(tipo))
-        .eq("status", "ativo")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    rows = response.data if isinstance(response.data, list) else []
-    if not rows:
-        return {}
-    result = rows[0].get("resultado", {}) if isinstance(rows[0], dict) else {}
-    encrypted = result.get("payload") if isinstance(result, dict) else ""
-    return decrypt_payload(str(encrypted or ""))
+    try:
+        response = (
+            client.table("painel_extracoes")
+            .select("resultado,created_at")
+            .eq("empresa_id", empresa_id)
+            .eq("tipo", credential_tipo(tipo))
+            .eq("status", "ativo")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data if isinstance(response.data, list) else []
+        if not rows:
+            return {}
+        result = rows[0].get("resultado", {}) if isinstance(rows[0], dict) else {}
+        encrypted = result.get("payload") if isinstance(result, dict) else ""
+        return decrypt_payload(str(encrypted or ""))
+    except CredentialsConfigError:
+        raise
+    except Exception as exc:
+        raise CredentialsConfigError("Falha ao ler credenciais no Supabase: " + _safe_error(exc)) from exc
 
 
 def save_credentials(
@@ -98,18 +109,23 @@ def save_credentials(
     *,
     user_id: str | None = None,
 ) -> None:
-    tipo_registro = credential_tipo(tipo)
-    encrypted = encrypt_payload(payload)
     try:
-        client.table("painel_extracoes").update({"status": "substituido"}).eq("empresa_id", empresa_id).eq("tipo", tipo_registro).eq("status", "ativo").execute()
-    except Exception:
-        pass
-    client.table("painel_extracoes").insert(
-        {
-            "empresa_id": empresa_id,
-            "tipo": tipo_registro,
-            "status": "ativo",
-            "parametros": {"updated_by": user_id} if user_id else {},
-            "resultado": {"payload": encrypted},
-        }
-    ).execute()
+        tipo_registro = credential_tipo(tipo)
+        encrypted = encrypt_payload(payload)
+        try:
+            client.table("painel_extracoes").update({"status": "substituido"}).eq("empresa_id", empresa_id).eq("tipo", tipo_registro).eq("status", "ativo").execute()
+        except Exception:
+            pass
+        client.table("painel_extracoes").insert(
+            {
+                "empresa_id": empresa_id,
+                "tipo": tipo_registro,
+                "status": "ativo",
+                "parametros": {"updated_by": user_id} if user_id else {},
+                "resultado": {"payload": encrypted},
+            }
+        ).execute()
+    except CredentialsConfigError:
+        raise
+    except Exception as exc:
+        raise CredentialsConfigError("Falha ao salvar credenciais no Supabase: " + _safe_error(exc)) from exc

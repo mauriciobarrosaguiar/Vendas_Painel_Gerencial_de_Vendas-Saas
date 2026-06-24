@@ -74,14 +74,29 @@ function runLabel(run?: RunSummary) {
   return `${run.status || "status"}${run.conclusion ? ` / ${run.conclusion}` : ""}`;
 }
 
+async function responsePayload(response: Response): Promise<{ detail?: unknown; message?: unknown; raw?: string }> {
+  const text = await response.text().catch(() => "");
+  if (!text) {
+    return {};
+  }
+  try {
+    return { ...(JSON.parse(text) as object), raw: text };
+  } catch {
+    return { raw: text };
+  }
+}
+
 function errorMessage(payload: unknown, fallback: string) {
   if (payload && typeof payload === "object") {
-    const data = payload as { detail?: unknown; message?: unknown };
-    if (typeof data.detail === "string") {
+    const data = payload as { detail?: unknown; message?: unknown; raw?: unknown };
+    if (typeof data.detail === "string" && data.detail.trim()) {
       return data.detail;
     }
-    if (typeof data.message === "string") {
+    if (typeof data.message === "string" && data.message.trim()) {
       return data.message;
+    }
+    if (typeof data.raw === "string" && data.raw.trim()) {
+      return data.raw.slice(0, 500);
     }
   }
   return fallback;
@@ -155,11 +170,11 @@ export function AutomationImportPanel() {
         headers,
         body: JSON.stringify(body),
       });
-      const payload = (await response.json().catch(() => ({}))) as { message?: string };
+      const payload = await responsePayload(response);
       if (!response.ok) {
-        throw new Error(errorMessage(payload, "Falha ao disparar automacao."));
+        throw new Error(errorMessage(payload, `Falha ao disparar automacao. HTTP ${response.status}`));
       }
-      setState({ loading: false, message: payload.message || "Automacao disparada.", tone: "ok" });
+      setState({ loading: false, message: String(payload.message || "Automacao disparada."), tone: "ok" });
       void refreshStatus();
     } catch (error) {
       setState({

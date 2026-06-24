@@ -14,4 +14,6 @@ npm install
 npm run dev
 ```
 
-Para consumir a API FastAPI local, configure `BACKEND_URL=http://127.0.0.1:8000`.
+O script local usa Webpack (`next dev --webpack`) porque Turbopack exige bindings nativos do SWC.
+
+Para consumir a API FastAPI local pelo proxy `/api`, configure `BACKEND_URL=http://127.0.0.1:8000`.

@@ -38,6 +38,7 @@ type BussolaStatus = {
 };
 
 type CredentialStatus = {
+  error?: string;
   encryption_configured?: boolean;
   bussola?: {
     gd_usuario?: string;
@@ -165,7 +166,11 @@ export function AutomationImportPanel() {
   }, [authToken]);
 
   useEffect(() => {
-    void refreshStatus();
+    const timer = window.setTimeout(() => {
+      void refreshStatus();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [refreshStatus]);
 
   function toggleUf(uf: string) {
@@ -464,6 +469,7 @@ export function AutomationImportPanel() {
           As senhas ficam criptografadas. Campo de senha vazio mantem a senha salva.
         </p>
       </div>
+      {credentialStatus.error ? <p className="mt-2 text-sm text-[#a33a2a]">{credentialStatus.error}</p> : null}
       <p className={`mt-4 text-sm ${toneClass(state.tone)}`}>{state.message}</p>
     </section>
   );

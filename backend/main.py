@@ -494,6 +494,48 @@ def _safe_runs(workflow: str, limit: int = 5) -> tuple[list[dict[str, Any]], str
         return [], str(exc)
 
 
+def _supabase_config_message() -> str:
+    return "Supabase nao configurado. Verifique SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY."
+
+
+def _mercado_farma_unconfigured_status() -> dict[str, Any]:
+    runs, runs_error = _safe_runs(WORKFLOW_MERCADO_FARMA)
+    message = _supabase_config_message()
+    return {
+        "ok": False,
+        "github_configured": github_actions_configured(),
+        "available_ufs": [],
+        "total_eans": 0,
+        "tem_painel": False,
+        "tem_produtos_mix": False,
+        "tem_produtos_mercado": False,
+        "vendedores_gd": [],
+        "bases": [],
+        "runs": runs,
+        "runs_error": f"{message} {runs_error}".strip(),
+    }
+
+
+def _credentials_unconfigured_summary() -> dict[str, Any]:
+    return {
+        "ok": False,
+        "encryption_configured": credentials_available(),
+        "error": _supabase_config_message(),
+        "bussola": {
+            "gd_usuario": "",
+            "gd_usuario_mascarado": "",
+            "tem_senha": False,
+            "usar_gd": True,
+            "headless": True,
+        },
+        "mercado_farma": {
+            "usuario": "",
+            "usuario_mascarado": "",
+            "tem_senha": False,
+        },
+    }
+
+
 def _register_extraction(
     client: Any,
     empresa_id: str,
@@ -631,6 +673,8 @@ def automacao_mercado_farma_status(
     authorization: str | None = Header(default=None),
     x_empresa_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    if not is_supabase_configured():
+        return _mercado_farma_unconfigured_status()
     context = _require_context(authorization, x_empresa_id)
     client = get_supabase_client()
     ctx = _automation_context(client, context.empresa_id)
@@ -656,6 +700,8 @@ def automacao_credenciais_status(
     authorization: str | None = Header(default=None),
     x_empresa_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    if not is_supabase_configured():
+        return _credentials_unconfigured_summary()
     context = _require_context(authorization, x_empresa_id)
     client = get_supabase_client()
     return _credentials_summary(client, context.empresa_id)
@@ -668,6 +714,8 @@ def automacao_credenciais_salvar(
     authorization: str | None = Header(default=None),
     x_empresa_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    if not is_supabase_configured():
+        raise HTTPException(status_code=503, detail=_supabase_config_message())
     context = _require_context(authorization, x_empresa_id)
     client = get_supabase_client()
     if not credentials_available():
@@ -695,6 +743,8 @@ def automacao_mercado_farma_disparar(
     authorization: str | None = Header(default=None),
     x_empresa_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
+    if not is_supabase_configured():
+        raise HTTPException(status_code=503, detail=_supabase_config_message())
     context = _require_context(authorization, x_empresa_id)
     client = get_supabase_client()
     ctx = _automation_context(client, context.empresa_id)
